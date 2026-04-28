@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"cancer-to-hell/agents"
+	"cancer-to-hell/pubmed"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,7 +19,6 @@ func StartDebate(c *gin.Context) {
 	}
 
 	// Step 2 — safety pre-check
-	// If critical data is missing, block immediately without calling Gemma 4
 	missing := CriticalMissingData(input)
 	if len(missing) > 0 {
 		c.JSON(http.StatusOK, gin.H{
@@ -27,11 +29,33 @@ func StartDebate(c *gin.Context) {
 		return
 	}
 
-	// Step 3 — build patient context string for all 3 modules
+	// Step 3 — build patient context
 	patientContext := BuildPatientContext(input)
 
-	// Step 4 — call all 3 clinical modules sequentially for now
-	// (concurrent goroutines coming in next commit)
+	// Step 4 — fetch real papers from PubMed first
+	searchQuery := input.CancerType + " " +
+		strings.Join(input.Biomarkers, " ") +
+		" treatment"
+
+	papers, err := pubmed.Search(searchQuery)
+	if err != nil {
+		papers = []pubmed.Paper{}
+	}
+
+	// Step 5 — append real papers to patient context
+	// This forces agents to cite from real sources, not invented ones
+	if len(papers) > 0 {
+		patientContext += "\nREAL PEER-REVIEWED PAPERS FOR CITATION:\n"
+		for _, p := range papers {
+			patientContext += fmt.Sprintf(
+				"- %s. %s (%s). https://pubmed.ncbi.nlm.nih.gov/%s\n",
+				p.Title, p.Journal, p.Year, p.PMID,
+			)
+		}
+		patientContext += "\nYou MUST cite only from the papers listed above. Do not invent citations.\n"
+	}
+
+	// Step 6 — call all 3 clinical modules
 	evidence, err := agents.EvidenceRetrieval(patientContext)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Evidence module failed: " + err.Error()})
@@ -50,11 +74,12 @@ func StartDebate(c *gin.Context) {
 		return
 	}
 
-	// Step 5 — return all 3 responses
+	// Step 7 — return everything together
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "ok",
 		"evidence":  evidence,
 		"guideline": guideline,
 		"safety":    safety,
+		"papers":    papers,
 	})
 }
