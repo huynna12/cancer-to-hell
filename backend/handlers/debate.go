@@ -6,9 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+// moduleOutput holds the result from a single clinical module
+type moduleOutput struct {
+	name   string
+	result string
+	err    error
+}
 
 func StartDebate(c *gin.Context) {
 	// Step 1 — parse the incoming request
@@ -32,7 +40,7 @@ func StartDebate(c *gin.Context) {
 	// Step 3 — build patient context
 	patientContext := BuildPatientContext(input)
 
-	// Step 4 — fetch real papers from PubMed first
+	// Step 4 — fetch real papers from PubMed
 	searchQuery := input.CancerType + " " +
 		strings.Join(input.Biomarkers, " ") +
 		" treatment"
@@ -43,43 +51,68 @@ func StartDebate(c *gin.Context) {
 	}
 
 	// Step 5 — append real papers to patient context
-	// This forces agents to cite from real sources, not invented ones
 	if len(papers) > 0 {
 		patientContext += "\nREAL PEER-REVIEWED PAPERS FOR CITATION:\n"
 		for _, p := range papers {
+			authorStr := "Unknown Authors"
+			if len(p.Authors) > 3 {
+				authorStr = strings.Join(p.Authors[:3], ", ") + ", et al."
+			} else if len(p.Authors) > 0 {
+				authorStr = strings.Join(p.Authors, ", ")
+			}
 			patientContext += fmt.Sprintf(
-				"- %s. %s (%s). https://pubmed.ncbi.nlm.nih.gov/%s\n",
-				p.Title, p.Journal, p.Year, p.PMID,
+				"- %s (%s). %s. %s. PMID: %s\n",
+				authorStr, p.Year, p.Title, p.Journal, p.PMID,
 			)
 		}
-		patientContext += "\nYou MUST cite only from the papers listed above. Do not invent citations.\n"
+		patientContext += "\nCite in APA format using the author names, year, title, journal and PMID provided above. Do not invent citations.\n"
 	}
 
-	// Step 6 — call all 3 clinical modules
-	evidence, err := agents.EvidenceRetrieval(patientContext)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Evidence module failed: " + err.Error()})
-		return
+	// Step 6 — run all 3 modules concurrently using goroutines
+	// Each module runs in its own goroutine simultaneously
+	var wg sync.WaitGroup
+	resultCh := make(chan moduleOutput, 3)
+
+	modules := []struct {
+		name string
+		fn   func(string) (string, error)
+	}{
+		{"evidence", agents.EvidenceRetrieval},
+		{"guideline", agents.GuidelineAlignment},
+		{"safety", agents.SafetyRisk},
 	}
 
-	guideline, err := agents.GuidelineAlignment(patientContext)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Guideline module failed: " + err.Error()})
-		return
+	for _, mod := range modules {
+		wg.Add(1)
+		go func(name string, fn func(string) (string, error)) {
+			defer wg.Done()
+			result, err := fn(patientContext)
+			resultCh <- moduleOutput{name: name, result: result, err: err}
+		}(mod.name, mod.fn)
 	}
 
-	safety, err := agents.SafetyRisk(patientContext)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Safety module failed: " + err.Error()})
-		return
+	// Wait for all goroutines to finish then close the channel
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// Step 7 — collect results from channel
+	outputs := make(map[string]string)
+	for output := range resultCh {
+		if output.err != nil {
+			outputs[output.name] = "Module failed: " + output.err.Error()
+		} else {
+			outputs[output.name] = output.result
+		}
 	}
 
-	// Step 7 — return everything together
+	// Step 8 — return everything
 	c.JSON(http.StatusOK, gin.H{
 		"status":    "ok",
-		"evidence":  evidence,
-		"guideline": guideline,
-		"safety":    safety,
+		"evidence":  outputs["evidence"],
+		"guideline": outputs["guideline"],
+		"safety":    outputs["safety"],
 		"papers":    papers,
 	})
 }

@@ -16,11 +16,12 @@ const (
 
 // Paper represents a single PubMed research paper
 type Paper struct {
-	Title   string `json:"title"`
-	Journal string `json:"journal"`
-	Year    string `json:"year"`
-	PMID    string `json:"pmid"`
-	Link    string `json:"link"`
+	Title   string   `json:"title"`
+	Authors []string `json:"authors"`
+	Journal string   `json:"journal"`
+	Year    string   `json:"year"`
+	PMID    string   `json:"pmid"`
+	Link    string   `json:"link"`
 }
 
 // searchResult parses the esearch XML response
@@ -38,8 +39,18 @@ type article struct {
 }
 
 type medlineCitation struct {
-	PMID    string   `xml:"PMID"`
-	Article article2 `xml:"Article"`
+	PMID       string     `xml:"PMID"`
+	Article    article2   `xml:"Article"`
+	AuthorList authorList `xml:"Article>AuthorList"`
+}
+
+type authorList struct {
+	Authors []author `xml:"Author"`
+}
+
+type author struct {
+	LastName string `xml:"LastName"`
+	Initials string `xml:"Initials"`
 }
 
 type article2 struct {
@@ -54,7 +65,6 @@ type journal struct {
 
 // Search queries PubMed and returns top 5 relevant papers
 func Search(query string) ([]Paper, error) {
-	// Step 1 — search for paper IDs
 	ids, err := searchIDs(query)
 	if err != nil {
 		return nil, err
@@ -63,7 +73,6 @@ func Search(query string) ([]Paper, error) {
 		return []Paper{}, nil
 	}
 
-	// Step 2 — fetch paper details using IDs
 	papers, err := fetchPapers(ids)
 	if err != nil {
 		return nil, err
@@ -125,8 +134,18 @@ func fetchPapers(ids []string) ([]Paper, error) {
 	papers := make([]Paper, 0)
 	for _, a := range result.Articles {
 		pmid := a.MedlineCitation.PMID
+
+		// Build author list
+		authors := make([]string, 0)
+		for _, auth := range a.MedlineCitation.AuthorList.Authors {
+			if auth.LastName != "" {
+				authors = append(authors, auth.LastName+", "+auth.Initials+".")
+			}
+		}
+
 		papers = append(papers, Paper{
 			Title:   a.MedlineCitation.Article.Title,
+			Authors: authors,
 			Journal: a.MedlineCitation.Article.Journal.Title,
 			Year:    a.MedlineCitation.Article.Journal.Year,
 			PMID:    pmid,

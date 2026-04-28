@@ -18,6 +18,13 @@ When citing studies, use APA format:
 Author(s). (Year). Title. Journal Name, Volume(Issue), Pages. PMID: XXXXXXX
 Example: Robson, M., et al. (2017). Olaparib for metastatic breast cancer in patients with a germline BRCA mutation. New England Journal of Medicine, 377(6), 523-533. PMID: 28578601
 
+STRICT CITATION RULE:
+- If real papers are provided in the patient context, cite ONLY from those papers
+- If no papers are provided, do NOT invent citations
+- If no papers are provided, write "No citations available" in the citations section
+- Never fabricate author names, PMIDs, or journal details
+- Never use placeholder text like "PMID: XXXXXXX" in your response
+
 Format your response as:
 EVIDENCE SUMMARY:
 [Your analysis]
@@ -46,6 +53,13 @@ When referencing guidelines, use APA format:
 Organization. (Year). Guideline title (Version). Publisher.
 Example: National Comprehensive Cancer Network. (2024). Breast Cancer (Version 2.2024). NCCN. 
 Example: Cardoso, F., et al. (2024). ESMO Clinical Practice Guideline for metastatic breast cancer. Annals of Oncology. PMID: XXXXXXX
+
+STRICT CITATION RULE:
+- If real papers are provided in the patient context, cite ONLY from those papers
+- If no papers are provided, do NOT invent citations
+- If no papers are provided, write "No citations available" in the citations section
+- Never fabricate author names, PMIDs, or journal details
+- Never use placeholder text like "PMID: XXXXXXX" in your response
 
 Format your response as:
 GUIDELINE-CONCORDANT OPTIONS:
@@ -77,6 +91,13 @@ When given a patient profile:
 When citing safety data, use APA format:
 Author(s). (Year). Title. Journal, Volume(Issue). PMID: XXXXXXX
 Example: Litton, J.K., et al. (2018). Talazoparib in patients with advanced breast cancer. New England Journal of Medicine, 379(8), 753-763. PMID: 30110579
+
+STRICT CITATION RULE:
+- If real papers are provided in the patient context, cite ONLY from those papers
+- If no papers are provided, do NOT invent citations
+- If no papers are provided, write "No citations available" in the citations section
+- Never fabricate author names, PMIDs, or journal details
+- Never use placeholder text like "PMID: XXXXXXX" in your response
 
 Format your response as:
 SAFETY FLAGS:
