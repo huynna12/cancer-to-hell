@@ -50,10 +50,12 @@ func StartDebate(c *gin.Context) {
 		papers = []pubmed.Paper{}
 	}
 
-	// Step 5 — append real papers to patient context
+	// Step 5 — append real papers + abstracts to patient context
+	// The model reads the full abstract so it reasons from actual study findings,
+	// not just titles. This is what makes citations clinically meaningful.
 	if len(papers) > 0 {
-		patientContext += "\nREAL PEER-REVIEWED PAPERS FOR CITATION:\n"
-		for _, p := range papers {
+		patientContext += "\nREAL PEER-REVIEWED PAPERS — READ THE ABSTRACTS TO GROUND YOUR REASONING:\n"
+		for i, p := range papers {
 			authorStr := "Unknown Authors"
 			if len(p.Authors) > 3 {
 				authorStr = strings.Join(p.Authors[:3], ", ") + ", et al."
@@ -61,11 +63,19 @@ func StartDebate(c *gin.Context) {
 				authorStr = strings.Join(p.Authors, ", ")
 			}
 			patientContext += fmt.Sprintf(
-				"- %s (%s). %s. %s. PMID: %s\n",
-				authorStr, p.Year, p.Title, p.Journal, p.PMID,
+				"\n[%d] %s (%s). %s. %s. PMID: %s\n",
+				i+1, authorStr, p.Year, p.Title, p.Journal, p.PMID,
 			)
+			if p.Abstract != "" {
+				patientContext += fmt.Sprintf("    Abstract: %s\n", p.Abstract)
+			}
 		}
-		patientContext += "\nCite in APA format using the author names, year, title, journal and PMID provided above. Do not invent citations.\n"
+		patientContext += "\nINSTRUCTIONS FOR USING THESE PAPERS:\n" +
+			"- These are the most recent peer-reviewed studies retrieved specifically for this patient case.\n" +
+			"- Base your clinical reasoning on what the abstracts actually found — read the RESULTS and CONCLUSIONS sections.\n" +
+			"- If a retrieved abstract contradicts your training knowledge or older guidelines, DEFER TO THE ABSTRACT. Recent evidence overrides older data.\n" +
+			"- Cite in APA format using the exact author names, year, title, journal, and PMID provided above.\n" +
+			"- Do not invent citations or use PMIDs not listed here.\n"
 	}
 
 	// Step 6 — run all 3 modules concurrently using goroutines
@@ -113,6 +123,5 @@ func StartDebate(c *gin.Context) {
 		"evidence":  outputs["evidence"],
 		"guideline": outputs["guideline"],
 		"safety":    outputs["safety"],
-		"papers":    papers,
 	})
 }
