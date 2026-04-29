@@ -24,6 +24,41 @@ type moduleOutput struct {
 
 var pmidPattern = regexp.MustCompile(`PMID:\s*(\d+)`)
 
+func appendAPAReferences(text string, papers []pubmed.Paper) string {
+	if len(papers) == 0 {
+		return text
+	}
+
+	cited := map[string]bool{}
+	for _, m := range pmidPattern.FindAllStringSubmatch(text, -1) {
+		if len(m) > 1 {
+			cited[m[1]] = true
+		}
+	}
+	if len(cited) == 0 {
+		return text
+	}
+
+	refs := make([]string, 0, len(cited))
+	for _, p := range papers {
+		if !cited[p.PMID] {
+			continue
+		}
+		authorStr := "Unknown Authors"
+		if len(p.Authors) > 3 {
+			authorStr = strings.Join(p.Authors[:3], ", ") + ", et al."
+		} else if len(p.Authors) > 0 {
+			authorStr = strings.Join(p.Authors, ", ")
+		}
+		refs = append(refs, fmt.Sprintf("- %s (%s). %s. %s. https://pubmed.ncbi.nlm.nih.gov/%s/", authorStr, p.Year, p.Title, p.Journal, p.PMID))
+	}
+	if len(refs) == 0 {
+		return text
+	}
+
+	return strings.TrimSpace(text) + "\n\nReferences (APA):\n" + strings.Join(refs, "\n")
+}
+
 // validateCitations replaces PMIDs not in the fetched paper set with [unverified].
 func validateCitations(text string, allowedPMIDs map[string]bool) (string, []string) {
 	var hallucinated []string
@@ -146,7 +181,7 @@ func StartDebate(c *gin.Context) {
 	var allHallucinated []string
 	for name, text := range outputs {
 		cleaned, found := validateCitations(text, allowedPMIDs)
-		outputs[name] = cleaned
+		outputs[name] = appendAPAReferences(cleaned, papers)
 		allHallucinated = append(allHallucinated, found...)
 	}
 
