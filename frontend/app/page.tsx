@@ -24,6 +24,8 @@ export default function Home() {
   const [biomarkers, setBiomarkers] = useState("HR+,HER2-,BRCA1");
   const [ecog, setEcog] = useState("1");
   const [priorLines, setPriorLines] = useState("Tamoxifen");
+  const [comorbidities, setComorbidities] = useState("");
+  const [currentMeds, setCurrentMeds] = useState("");
   const [egfr, setEgfr] = useState("");
   const [liverPanel, setLiverPanel] = useState("");
   const [cbc, setCbc] = useState("");
@@ -46,6 +48,8 @@ export default function Home() {
       biomarkers: parsedBiomarkers,
       ecog,
       prior_lines: priorLines.split(",").map((v) => v.trim()).filter(Boolean),
+      comorbidities: comorbidities.split(",").map((v) => v.trim()).filter(Boolean),
+      current_meds: currentMeds.split(",").map((v) => v.trim()).filter(Boolean),
       labs: { egfr, liver_panel: liverPanel, cbc, ecg },
     };
 
@@ -114,6 +118,8 @@ export default function Home() {
             <Field label="Biomarkers (comma separated)" value={biomarkers} onChange={setBiomarkers} />
             <Field label="ECOG Performance Status *" value={ecog} onChange={setEcog} />
             <Field label="Prior Lines (comma separated)" value={priorLines} onChange={setPriorLines} />
+            <Field label="Comorbidities (comma separated)" value={comorbidities} onChange={setComorbidities} placeholder="e.g. hypertension, diabetes" />
+            <Field label="Current Medications (comma separated)" value={currentMeds} onChange={setCurrentMeds} placeholder="e.g. warfarin, metformin" />
             <Field label="eGFR — kidney function *" value={egfr} onChange={setEgfr} />
             <Field label="Liver Panel *" value={liverPanel} onChange={setLiverPanel} />
             <Field label="CBC — complete blood count *" value={cbc} onChange={setCbc} />
@@ -219,10 +225,12 @@ function Field({
   label,
   value,
   onChange,
+  placeholder,
 }: Readonly<{
   label: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }>) {
   return (
     <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: "#5C4F4A" }}>
@@ -236,6 +244,7 @@ function Field({
         }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
       />
     </label>
   );
