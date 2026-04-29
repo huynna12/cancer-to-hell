@@ -2,86 +2,82 @@ package handlers
 
 import (
 	"cancer-to-hell/agents"
+	"cancer-to-hell/db"
 	"cancer-to-hell/pubmed"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 )
 
-// moduleOutput holds the result from a single clinical module
 type moduleOutput struct {
 	name   string
 	result string
 	err    error
 }
 
-func StartDebate(c *gin.Context) {
-	// Step 1 — parse the incoming request
-	var input PatientInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+var pmidPattern = regexp.MustCompile(`PMID:\s*(\d+)`)
 
-	// Step 2 — safety pre-check
-	missing := CriticalMissingData(input)
-	if len(missing) > 0 {
-		c.JSON(http.StatusOK, gin.H{
-			"status":       "blocked",
-			"missing_data": missing,
-			"message":      "Safety pre-check blocked recommendations. Please provide the missing data before proceeding.",
-		})
-		return
-	}
+// validateCitations replaces PMIDs not in the fetched paper set with [unverified].
+func validateCitations(text string, allowedPMIDs map[string]bool) (string, []string) {
+	var hallucinated []string
+	result := pmidPattern.ReplaceAllStringFunc(text, func(match string) string {
+		sub := pmidPattern.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		pmid := sub[1]
+		if allowedPMIDs[pmid] {
+			return match
+		}
+		hallucinated = append(hallucinated, pmid)
+		return "PMID: [unverified]"
+	})
+	return result, hallucinated
+}
 
-	// Step 3 — build patient context
+func buildContext(input PatientInput, papers []pubmed.Paper) string {
 	patientContext := BuildPatientContext(input)
 
-	// Step 4 — fetch real papers from PubMed
-	searchQuery := input.CancerType + " " +
-		strings.Join(input.Biomarkers, " ") +
-		" treatment"
-
-	papers, err := pubmed.Search(searchQuery)
-	if err != nil {
-		papers = []pubmed.Paper{}
+	if len(papers) == 0 {
+		return patientContext
 	}
 
-	// Step 5 — append real papers + abstracts to patient context
-	// The model reads the full abstract so it reasons from actual study findings,
-	// not just titles. This is what makes citations clinically meaningful.
-	if len(papers) > 0 {
-		patientContext += "\nINSTRUCTIONS FOR USING THE PAPERS BELOW:\n" +
-			"- These are the most recent peer-reviewed studies retrieved specifically for this patient case.\n" +
-			"- Base your clinical reasoning on what the abstracts actually found — read the RESULTS and CONCLUSIONS sections.\n" +
-			"- If a retrieved abstract contradicts your training knowledge or older guidelines, DEFER TO THE ABSTRACT. Recent evidence overrides older data.\n" +
-			"- Cite in APA format using the exact author names, year, title, journal, and PMID provided below.\n" +
-			"- Do not invent citations or use PMIDs not listed here.\n"
-		patientContext += "\nREAL PEER-REVIEWED PAPERS:\n"
-		for i, p := range papers {
-			authorStr := "Unknown Authors"
-			if len(p.Authors) > 3 {
-				authorStr = strings.Join(p.Authors[:3], ", ") + ", et al."
-			} else if len(p.Authors) > 0 {
-				authorStr = strings.Join(p.Authors, ", ")
-			}
-			patientContext += fmt.Sprintf(
-				"\n[%d] %s (%s). %s. %s. PMID: %s\n",
-				i+1, authorStr, p.Year, p.Title, p.Journal, p.PMID,
-			)
-			if p.Abstract != "" {
-				patientContext += fmt.Sprintf("    Abstract: %s\n", p.Abstract)
-			}
+	patientContext += "\nREAL PEER-REVIEWED PAPERS — READ THE ABSTRACTS TO GROUND YOUR REASONING:\n"
+	for i, p := range papers {
+		authorStr := "Unknown Authors"
+		if len(p.Authors) > 3 {
+			authorStr = strings.Join(p.Authors[:3], ", ") + ", et al."
+		} else if len(p.Authors) > 0 {
+			authorStr = strings.Join(p.Authors, ", ")
+		}
+		patientContext += fmt.Sprintf(
+			"\n[%d] %s (%s). %s. %s. PMID: %s\n",
+			i+1, authorStr, p.Year, p.Title, p.Journal, p.PMID,
+		)
+		if p.Abstract != "" {
+			patientContext += fmt.Sprintf("    Abstract: %s\n", p.Abstract)
 		}
 	}
+	patientContext += "\nINSTRUCTIONS FOR USING THESE PAPERS:\n" +
+		"- These are the most recent peer-reviewed studies retrieved specifically for this patient case.\n" +
+		"- Base your clinical reasoning on what the abstracts actually found — read the RESULTS and CONCLUSIONS sections.\n" +
+		"- If a retrieved abstract contradicts your training knowledge or older guidelines, DEFER TO THE ABSTRACT. Recent evidence overrides older data.\n" +
+		"- Cite using the exact author names, year, and PMID provided above.\n" +
+		"- Do not invent citations or use PMIDs not listed here.\n"
 
-	// Step 6 — run all 3 modules concurrently using goroutines
-	// Each module runs in its own goroutine simultaneously
+	return patientContext
+}
+
+func runModules(patientContext string) (map[string]string, error) {
 	var wg sync.WaitGroup
-	resultCh := make(chan moduleOutput, 3)
+	resultCh := make(chan moduleOutput, 2)
 
 	modules := []struct {
 		name string
@@ -89,7 +85,6 @@ func StartDebate(c *gin.Context) {
 	}{
 		{"evidence", agents.EvidenceRetrieval},
 		{"guideline", agents.GuidelineAlignment},
-		{"safety", agents.SafetyRisk},
 	}
 
 	for _, mod := range modules {
@@ -101,13 +96,11 @@ func StartDebate(c *gin.Context) {
 		}(mod.name, mod.fn)
 	}
 
-	// Wait for all goroutines to finish then close the channel
 	go func() {
 		wg.Wait()
 		close(resultCh)
 	}()
 
-	// Step 7 — collect results from channel
 	outputs := make(map[string]string)
 	for output := range resultCh {
 		if output.err != nil {
@@ -116,12 +109,64 @@ func StartDebate(c *gin.Context) {
 			outputs[output.name] = output.result
 		}
 	}
+	return outputs, nil
+}
 
-	// Step 8 — return everything
-	c.JSON(http.StatusOK, gin.H{
+func StartDebate(c *gin.Context) {
+	var input PatientInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	missing := CriticalMissingData(input)
+	if len(missing) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "blocked",
+			"missing_data": missing,
+			"message":      "Safety pre-check blocked recommendations. Please provide the missing data before proceeding.",
+		})
+		return
+	}
+
+	searchQuery := input.CancerType + " " + strings.Join(input.Biomarkers, " ") + " treatment"
+	papers, err := pubmed.Search(searchQuery)
+	if err != nil {
+		papers = []pubmed.Paper{}
+	}
+
+	allowedPMIDs := make(map[string]bool, len(papers))
+	for _, p := range papers {
+		allowedPMIDs[p.PMID] = true
+	}
+
+	patientContext := buildContext(input, papers)
+	outputs, _ := runModules(patientContext)
+
+	var allHallucinated []string
+	for name, text := range outputs {
+		cleaned, found := validateCitations(text, allowedPMIDs)
+		outputs[name] = cleaned
+		allHallucinated = append(allHallucinated, found...)
+	}
+
+	go db.Save(db.Session{
+		ID:         uuid.New().String(),
+		CreatedAt:  time.Now(),
+		CancerType: input.CancerType,
+		Stage:      input.Stage,
+		Evidence:   outputs["evidence"],
+		Guideline:  outputs["guideline"],
+	})
+
+	resp := gin.H{
 		"status":    "ok",
 		"evidence":  outputs["evidence"],
 		"guideline": outputs["guideline"],
-		"safety":    outputs["safety"],
-	})
+	}
+	if len(allHallucinated) > 0 {
+		resp["hallucinated_citations"] = allHallucinated
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

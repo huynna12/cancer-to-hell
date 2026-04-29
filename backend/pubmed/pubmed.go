@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
 const (
@@ -15,9 +16,10 @@ const (
 	fetchURL  = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 )
 
+// cache avoids hitting PubMed repeatedly for the same query within a process lifetime.
+var cache sync.Map // map[string][]Paper
+
 // Paper is one PubMed article returned to the caller.
-// Abstract holds the full abstract text so the model can reason from the actual content,
-// not just cite from the title/metadata.
 type Paper struct {
 	Title    string   `json:"title"`
 	Authors  []string `json:"authors"`
@@ -144,14 +146,26 @@ func apiKey() string {
 }
 
 func Search(query string) ([]Paper, error) {
+	if cached, ok := cache.Load(query); ok {
+		return cached.([]Paper), nil
+	}
+
 	ids, err := searchIDs(query)
 	if err != nil {
 		return nil, err
 	}
 	if len(ids) == 0 {
+		cache.Store(query, []Paper{})
 		return []Paper{}, nil
 	}
-	return fetchPapers(ids)
+
+	papers, err := fetchPapers(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	cache.Store(query, papers)
+	return papers, nil
 }
 
 func searchIDs(query string) ([]string, error) {

@@ -1,0 +1,136 @@
+package handlers
+
+import (
+	"cancer-to-hell/agents"
+	"cancer-to-hell/db"
+	"cancer-to-hell/pubmed"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+type sseEvent struct {
+	Type                  string   `json:"type"`
+	Name                  string   `json:"name,omitempty"`
+	Content               string   `json:"content,omitempty"`
+	Message               string   `json:"message,omitempty"`
+	MissingData           []string `json:"missing_data,omitempty"`
+	HallucinatedCitations []string `json:"hallucinated_citations,omitempty"`
+}
+
+func StreamDebate(c *gin.Context) {
+	var input PatientInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	missing := CriticalMissingData(input)
+	if len(missing) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "blocked",
+			"missing_data": missing,
+			"message":      "Safety pre-check blocked recommendations. Please provide the missing data before proceeding.",
+		})
+		return
+	}
+
+	eventCh := make(chan sseEvent, 10)
+
+	go func() {
+		defer close(eventCh)
+
+		eventCh <- sseEvent{Type: "status", Message: "Fetching PubMed papers..."}
+
+		searchQuery := input.CancerType + " " + strings.Join(input.Biomarkers, " ") + " treatment"
+		papers, err := pubmed.Search(searchQuery)
+		if err != nil {
+			papers = []pubmed.Paper{}
+		}
+
+		allowedPMIDs := make(map[string]bool, len(papers))
+		for _, p := range papers {
+			allowedPMIDs[p.PMID] = true
+		}
+
+		patientContext := buildContext(input, papers)
+		eventCh <- sseEvent{Type: "status", Message: fmt.Sprintf("Running clinical modules (found %d papers)...", len(papers))}
+
+		var wg sync.WaitGroup
+		resultCh := make(chan moduleOutput, 2)
+
+		modules := []struct {
+			name string
+			fn   func(string) (string, error)
+		}{
+			{"evidence", agents.EvidenceRetrieval},
+			{"guideline", agents.GuidelineAlignment},
+		}
+
+		for _, mod := range modules {
+			wg.Add(1)
+			go func(name string, fn func(string) (string, error)) {
+				defer wg.Done()
+				result, err := fn(patientContext)
+				resultCh <- moduleOutput{name: name, result: result, err: err}
+			}(mod.name, mod.fn)
+		}
+
+		go func() {
+			wg.Wait()
+			close(resultCh)
+		}()
+
+		outputs := make(map[string]string)
+		var allHallucinated []string
+
+		for output := range resultCh {
+			content := output.result
+			if output.err != nil {
+				content = "Module failed: " + output.err.Error()
+			}
+
+			cleaned, found := validateCitations(content, allowedPMIDs)
+			outputs[output.name] = cleaned
+			allHallucinated = append(allHallucinated, found...)
+
+			evt := sseEvent{Type: "module", Name: output.name, Content: cleaned}
+			if len(found) > 0 {
+				evt.HallucinatedCitations = found
+			}
+			eventCh <- evt
+		}
+
+		go db.Save(db.Session{
+			ID:         uuid.New().String(),
+			CreatedAt:  time.Now(),
+			CancerType: input.CancerType,
+			Stage:      input.Stage,
+			Evidence:   outputs["evidence"],
+			Guideline:  outputs["guideline"],
+		})
+
+		done := sseEvent{Type: "done"}
+		if len(allHallucinated) > 0 {
+			done.HallucinatedCitations = allHallucinated
+		}
+		eventCh <- done
+	}()
+
+	c.Stream(func(w io.Writer) bool {
+		event, ok := <-eventCh
+		if !ok {
+			return false
+		}
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		return true
+	})
+}

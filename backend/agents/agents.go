@@ -1,118 +1,61 @@
 package agents
 
-import "cancer-to-hell/gemma"
+import (
+	"cancer-to-hell/gemma"
+	"regexp"
+	"strings"
+)
 
-// EvidenceRetrieval reasons from latest peer-reviewed research
+// thinkingLine strips lines that start with * — the model's leaked scratchpad bullets.
+var thinkingLine = regexp.MustCompile(`(?m)^\s*\*[^\n]*\n?`)
+
+func cleanResponse(response string) string {
+	response = thinkingLine.ReplaceAllString(response, "")
+	blank := regexp.MustCompile(`\n{3,}`)
+	response = blank.ReplaceAllString(response, "\n\n")
+	return strings.TrimSpace(response)
+}
+
 func EvidenceRetrieval(patientContext string) (string, error) {
 	system := `You are an oncology research scientist specializing in metastatic breast cancer.
-Your role is to identify the most relevant and recent peer-reviewed evidence for treatment decisions.
 
-When given a patient profile:
-- Identify the most relevant treatment approaches supported by RCT or high-quality evidence
-- Reference specific studies, trials, or guidelines where possible
-- Note the evidence quality: RCT, meta-analysis, retrospective, case series
-- Flag any emerging therapies in clinical trials relevant to this patient
-- Keep response focused, evidence-based, and under 300 words
+RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists. No preamble like "Based on..." or "I will...". Start directly with the clinical reasoning.
 
-When citing studies, use APA format:
-Author(s). (Year). Title. Journal Name, Volume(Issue), Pages. PMID: XXXXXXX
-Example: Robson, M., et al. (2017). Olaparib for metastatic breast cancer in patients with a germline BRCA mutation. New England Journal of Medicine, 377(6), 523-533. PMID: 28578601
+Write 4-6 sentences that reason through the strongest evidence for treating THIS specific patient. Weave citations inline where they exist. For every study you cite, embed the PMID at the end of the sentence like this: (Author et al., Year. PMID: 28578601)
 
-STRICT CITATION RULE:
-- If real papers are provided in the patient context, cite ONLY from those papers
-- If no papers are provided, do NOT invent citations
-- If no papers are provided, write "No citations available" in the citations section
-- Never fabricate author names, PMIDs, or journal details
-- Never use placeholder text like "PMID: XXXXXXX" in your response
+Your reasoning should:
+- Connect the patient's specific biomarkers and prior therapy to the evidence
+- Name the most relevant RCT or trial by its common name (e.g. OlympiAD, MONARCH-2)
+- End with a brief note on evidence quality (RCT, retrospective, etc.)
 
-Format your response as:
-EVIDENCE SUMMARY:
-[Your analysis]
+CITATION RULES — read carefully:
+- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
+- Use the exact PMID numbers provided — do not change or guess them
+- If no papers are listed in the context, write the reasoning without any citations
+- Never invent PMIDs, author names, trial names, or journals`
 
-KEY STUDIES:
-[APA formatted citations]
-
-EVIDENCE GRADE: [RCT/Meta-analysis/Retrospective]`
-
-	return gemma.Ask(system, patientContext)
+	result, err := gemma.Ask(system, patientContext)
+	return cleanResponse(result), err
 }
 
-// GuidelineAlignment maps patient to standard of care pathways
 func GuidelineAlignment(patientContext string) (string, error) {
 	system := `You are a clinical oncologist specializing in metastatic breast cancer guidelines.
-Your role is to map the patient profile to current standard-of-care treatment pathways.
 
-When given a patient profile:
-- Identify the NCCN/ASCO/ESMO guideline-concordant treatment options
-- Specify the line of therapy (1st line, 2nd line, etc.)
-- List top 3 regimen options with rationale for each
-- Note any guideline updates relevant to this patient's biomarkers
-- Keep response clinical, structured, and under 300 words
+RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists. No preamble like "Based on..." or "I will...". Start directly with the clinical reasoning.
 
-When referencing guidelines, use APA format:
-Organization. (Year). Guideline title (Version). Publisher.
-Example: National Comprehensive Cancer Network. (2024). Breast Cancer (Version 2.2024). NCCN. 
-Example: Cardoso, F., et al. (2024). ESMO Clinical Practice Guideline for metastatic breast cancer. Annals of Oncology.
+Write 4-6 sentences that map THIS specific patient to guideline-concordant treatment pathways. Your reasoning should:
+- Name the line of therapy (first-line, second-line, etc.) and why
+- List the top 2-3 regimen options woven naturally into the prose, with a brief rationale for each
+- Reference the relevant guideline body (NCCN, ASCO, ESMO) and year
+- Embed any relevant PMID inline like: (Author et al., Year. PMID: 28578601)
+- End with a clear recommendation for this specific patient given their biomarkers and prior therapy
 
-STRICT CITATION RULE:
-- If real papers are provided in the patient context, cite ONLY from those papers
-- If no papers are provided, do NOT invent citations
-- If no papers are provided, write "No citations available" in the citations section
-- Never fabricate author names, PMIDs, or journal details
-- Never use placeholder text like "PMID: XXXXXXX" in your response
+CITATION RULES — read carefully:
+- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
+- Use the exact PMID numbers provided — do not change or guess them
+- If no papers are listed in the context, write the reasoning without any citations
+- Never invent PMIDs, author names, trial names, or journals`
 
-Format your response as:
-GUIDELINE-CONCORDANT OPTIONS:
-1. [Regimen] — [Rationale]
-2. [Regimen] — [Rationale]
-3. [Regimen] — [Rationale]
-
-LINE OF THERAPY: [First/Second/Third+]
-
-GUIDELINES REFERENCED:
-[APA formatted citations]`
-
-	return gemma.Ask(system, patientContext)
-}
-
-// SafetyRisk checks contraindications, interactions, and organ function
-func SafetyRisk(patientContext string) (string, error) {
-	system := `You are a clinical pharmacologist specializing in oncology safety assessment.
-Your role is to identify risks, contraindications, and safety concerns for treatment decisions.
-
-When given a patient profile:
-- Identify contraindicated therapies and explain why
-- Flag drug-drug interaction risks
-- List critical lab values needed before treatment (renal, hepatic, cardiac)
-- Note any missing safety data that blocks a recommendation
-- If critical data is missing, clearly state: "CANNOT RECOMMEND without [specific data]"
-- Keep response safety-focused and under 300 words
-
-When citing safety data, use APA format:
-Author(s). (Year). Title. Journal, Volume(Issue). PMID: XXXXXXX
-Example: Litton, J.K., et al. (2018). Talazoparib in patients with advanced breast cancer. New England Journal of Medicine, 379(8), 753-763. PMID: 30110579
-
-STRICT CITATION RULE:
-- If real papers are provided in the patient context, cite ONLY from those papers
-- If no papers are provided, do NOT invent citations
-- If no papers are provided, write "No citations available" in the citations section
-- Never fabricate author names, PMIDs, or journal details
-- Never use placeholder text like "PMID: XXXXXXX" in your response
-
-Format your response as:
-SAFETY FLAGS:
-[List of flags with APA citations where applicable]
-
-CONTRAINDICATIONS:
-[List with reasons and citations]
-
-MISSING CRITICAL DATA:
-[List of required data before proceeding]
-
-SAFE TO PROCEED: [YES / NO / CONDITIONAL]
-
-SAFETY REFERENCES:
-[APA formatted citations]`
-
-	return gemma.Ask(system, patientContext)
+	result, err := gemma.Ask(system, patientContext)
+	return cleanResponse(result), err
 }

@@ -3,21 +3,54 @@
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-type DebateResponse = {
-  status: string;
-  message?: string;
+type ModuleState = { content: string; done: boolean };
+
+type AppState = {
+  phase: "idle" | "working" | "done" | "blocked";
+  statusMessage: string;
+  evidence: ModuleState;
+  guideline: ModuleState;
   missing_data?: string[];
-  evidence?: string;
-  guideline?: string;
-  safety?: string;
+  blockMessage?: string;
+  hallucinatedCitations?: string[];
+  error?: string;
+};
+
+const IDLE: AppState = {
+  phase: "idle",
+  statusMessage: "",
+  evidence: { content: "", done: false },
+  guideline: { content: "", done: false },
 };
 
 const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
+// ── Validation ────────────────────────────────────────────────────────────────
+
+function validateForm(ecog: string, egfr: string): string | null {
+  const ecogNum = Number(ecog);
+  if (ecog.trim() === "" || !Number.isInteger(ecogNum) || ecogNum < 0 || ecogNum > 4) {
+    return "ECOG must be an integer between 0 and 4.";
+  }
+  if (egfr.trim() !== "" && (isNaN(Number(egfr)) || Number(egfr) <= 0)) {
+    return "eGFR must be a positive number (e.g. 62).";
+  }
+  return null;
+}
+
+// Converts "PMID: 12345678" in model output into markdown links
+function injectPubMedLinks(text: string): string {
+  return text.replace(
+    /PMID:\s*(\d+)/g,
+    (_, pmid) => `[PMID: ${pmid}](https://pubmed.ncbi.nlm.nih.gov/${pmid})`
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<DebateResponse | null>(null);
+  const [state, setState] = useState<AppState>(IDLE);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const [cancerType, setCancerType] = useState("Metastatic Breast Cancer");
   const [stage, setStage] = useState("IV");
@@ -36,11 +69,24 @@ export default function Home() {
     [biomarkers]
   );
 
+  const isWorking = state.phase === "working";
+
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError(null);
-    setResult(null);
-    setLoading(true);
+    setValidationError(null);
+
+    const err = validateForm(ecog, egfr);
+    if (err) {
+      setValidationError(err);
+      return;
+    }
+
+    setState({
+      phase: "working",
+      statusMessage: "Connecting...",
+      evidence: { content: "", done: false },
+      guideline: { content: "", done: false },
+    });
 
     const payload = {
       cancer_type: cancerType,
@@ -54,25 +100,93 @@ export default function Home() {
     };
 
     try {
-      const response = await fetch(`${backendUrl}/api/v1/decision-card`, {
+      const response = await fetch(`${backendUrl}/api/v1/decision-card/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) {
-        setError(`Request failed with ${response.status}`);
+      const contentType = response.headers.get("Content-Type") ?? "";
+      if (!response.ok || contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data.status === "blocked") {
+          setState((s) => ({
+            ...s,
+            phase: "blocked",
+            missing_data: data.missing_data,
+            blockMessage: data.message,
+          }));
+        } else {
+          setState((s) => ({ ...s, phase: "idle", error: data.error ?? "Unknown error" }));
+        }
         return;
       }
 
-      const data = (await response.json()) as DebateResponse;
-      setResult(data);
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const messages = buffer.split("\n\n");
+        buffer = messages.pop() ?? "";
+
+        for (const message of messages) {
+          const dataLine = message.split("\n").find((l) => l.startsWith("data: "));
+          if (!dataLine) continue;
+          try {
+            const evt = JSON.parse(dataLine.slice(6)) as {
+              type: string;
+              name?: string;
+              content?: string;
+              message?: string;
+              missing_data?: string[];
+              hallucinated_citations?: string[];
+            };
+
+            if (evt.type === "status") {
+              setState((s) => ({ ...s, statusMessage: evt.message ?? "" }));
+            } else if (evt.type === "module" && evt.name) {
+              setState((s) => ({
+                ...s,
+                [evt.name!]: { content: evt.content ?? "", done: true },
+              }));
+            } else if (evt.type === "done") {
+              setState((s) => ({
+                ...s,
+                phase: "done",
+                hallucinatedCitations: evt.hallucinated_citations,
+              }));
+            } else if (evt.type === "blocked") {
+              setState((s) => ({
+                ...s,
+                phase: "blocked",
+                missing_data: evt.missing_data,
+                blockMessage: evt.message,
+              }));
+            } else if (evt.type === "error") {
+              setState((s) => ({ ...s, phase: "idle", error: evt.message }));
+            }
+          } catch {
+            // malformed SSE line — skip
+          }
+        }
+      }
     } catch {
-      setError("Failed to connect to backend. Make sure the server is running.");
-    } finally {
-      setLoading(false);
+      setState((s) => ({
+        ...s,
+        phase: "idle",
+        error: "Failed to connect to backend. Make sure the server is running.",
+      }));
     }
   }
+
+  const showResults = state.phase === "working" || state.phase === "done";
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: "#EDE9E6" }}>
@@ -95,7 +209,7 @@ export default function Home() {
             Local oncology co-pilot for metastatic breast cancer tumor board decisions.
           </p>
           <p className="mt-1 text-sm" style={{ color: "#5C766D" }}>
-            🔒 Powered by Gemma 4 — running entirely on-device. Patient data never leaves this machine.
+            Powered by Gemma 4 via Google AI Studio. Patient data never leaves your machine.
           </p>
         </header>
 
@@ -116,40 +230,66 @@ export default function Home() {
             <Field label="Cancer Type" value={cancerType} onChange={setCancerType} />
             <Field label="Stage" value={stage} onChange={setStage} />
             <Field label="Biomarkers (comma separated)" value={biomarkers} onChange={setBiomarkers} />
-            <Field label="ECOG Performance Status *" value={ecog} onChange={setEcog} />
+            <Field
+              label="ECOG Performance Status * (0–4)"
+              value={ecog}
+              onChange={setEcog}
+              inputProps={{ type: "number", min: "0", max: "4", step: "1" }}
+            />
             <Field label="Prior Lines (comma separated)" value={priorLines} onChange={setPriorLines} />
-            <Field label="Comorbidities (comma separated)" value={comorbidities} onChange={setComorbidities} placeholder="e.g. hypertension, diabetes" />
-            <Field label="Current Medications (comma separated)" value={currentMeds} onChange={setCurrentMeds} placeholder="e.g. warfarin, metformin" />
-            <Field label="eGFR — kidney function *" value={egfr} onChange={setEgfr} />
+            <Field
+              label="eGFR — kidney function * (numeric, e.g. 62)"
+              value={egfr}
+              onChange={setEgfr}
+              inputProps={{ type: "number", min: "0", step: "any" }}
+            />
             <Field label="Liver Panel *" value={liverPanel} onChange={setLiverPanel} />
             <Field label="CBC — complete blood count *" value={cbc} onChange={setCbc} />
             <Field label="ECG" value={ecg} onChange={setEcg} />
+            <Field
+              label="Comorbidities (comma separated)"
+              value={comorbidities}
+              onChange={setComorbidities}
+            />
+            <Field
+              label="Current Medications (comma separated)"
+              value={currentMeds}
+              onChange={setCurrentMeds}
+            />
           </div>
+
+          {validationError && (
+            <p className="mt-3 text-sm font-medium" style={{ color: "#c62828" }}>
+              ⚠️ {validationError}
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={isWorking}
             className="mt-6 px-6 py-3 rounded-xl text-white font-semibold text-sm transition-opacity disabled:opacity-60 w-full md:w-auto"
-            style={{ backgroundColor: loading ? "#5C766D" : "#C9996B" }}
+            style={{ backgroundColor: isWorking ? "#5C766D" : "#C9996B" }}
           >
-            {loading ? "⏳ Generating — this may take around 5 minutes..." : "Generate Decision Card →"}
+            {isWorking
+              ? `⏳ ${state.statusMessage || "Working..."}`
+              : "Generate Decision Card →"}
           </button>
         </form>
 
-        {/* Error */}
-        {error && (
+        {/* Connection error */}
+        {state.error && (
           <div
             className="rounded-xl p-4 mb-6"
             style={{ backgroundColor: "#fdf0f0", border: "1px solid #e57373" }}
           >
             <p className="text-sm font-medium" style={{ color: "#c62828" }}>
-              ❌ {error}
+              ❌ {state.error}
             </p>
           </div>
         )}
 
         {/* Safety Blocked */}
-        {result?.status === "blocked" && (
+        {state.phase === "blocked" && (
           <div
             className="rounded-2xl p-6 mb-6"
             style={{ backgroundColor: "#fff8e1", border: "2px solid #C9996B" }}
@@ -158,21 +298,31 @@ export default function Home() {
               ⚠️ Safety Pre-Check Blocked
             </h2>
             <p className="mt-1 text-sm" style={{ color: "#5C4F4A" }}>
-              {result.message}
+              {state.blockMessage}
             </p>
             <ul className="mt-3 list-disc pl-6 text-sm space-y-1" style={{ color: "#5C4F4A" }}>
-              {result.missing_data?.map((item) => (
+              {state.missing_data?.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
           </div>
         )}
 
-        {/* Decision Card */}
-        {result?.status === "ok" && (
-          <div className="space-y-6">
+        {/* Hallucinated citations warning */}
+        {state.phase === "done" && state.hallucinatedCitations && state.hallucinatedCitations.length > 0 && (
+          <div
+            className="rounded-xl p-4 mb-4"
+            style={{ backgroundColor: "#fff3e0", border: "1px solid #fb8c00" }}
+          >
+            <p className="text-sm font-medium" style={{ color: "#e65100" }}>
+              ⚠️ {state.hallucinatedCitations.length} citation(s) could not be verified against retrieved PubMed papers and were marked [unverified].
+            </p>
+          </div>
+        )}
 
-            {/* Section label */}
+        {/* Decision Card — streams in as modules arrive */}
+        {showResults && (
+          <div className="space-y-6">
             <div className="flex items-center gap-2">
               <div className="h-px flex-1" style={{ backgroundColor: "#C9996B" }} />
               <span className="text-sm font-semibold px-3" style={{ color: "#5C4F4A" }}>
@@ -181,39 +331,32 @@ export default function Home() {
               <div className="h-px flex-1" style={{ backgroundColor: "#C9996B" }} />
             </div>
 
-            {/* 3 Module Cards — stacked vertically for readability */}
             <div className="flex flex-col gap-6">
               <ModuleCard
                 emoji="🔬"
                 title="Evidence Retrieval"
-                content={result.evidence ?? ""}
+                module={state.evidence}
                 accentColor="#C9996B"
               />
               <ModuleCard
                 emoji="📋"
                 title="Guideline Alignment"
-                content={result.guideline ?? ""}
+                module={state.guideline}
                 accentColor="#5C766D"
               />
-              <ModuleCard
-                emoji="⚠️"
-                title="Safety & Risk"
-                content={result.safety ?? ""}
-                accentColor="#5C4F4A"
-              />
             </div>
 
-            {/* Disclaimer */}
-            <div
-              className="rounded-xl p-4 text-center"
-              style={{ backgroundColor: "white", border: "1px solid #5C766D" }}
-            >
-              <p className="text-xs" style={{ color: "#5C766D" }}>
-                ⚕️ Clinical decision support only. Not a substitute for physician judgment.
-                All recommendations must be reviewed by a qualified oncologist before clinical use.
-              </p>
-            </div>
-
+            {state.phase === "done" && (
+              <div
+                className="rounded-xl p-4 text-center"
+                style={{ backgroundColor: "white", border: "1px solid #5C766D" }}
+              >
+                <p className="text-xs" style={{ color: "#5C766D" }}>
+                  ⚕️ Clinical decision support only. Not a substitute for physician judgment.
+                  All recommendations must be reviewed by a qualified oncologist before clinical use.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -221,169 +364,44 @@ export default function Home() {
   );
 }
 
+// ── Field ─────────────────────────────────────────────────────────────────────
+
 function Field({
   label,
   value,
   onChange,
-  placeholder,
+  inputProps,
 }: Readonly<{
   label: string;
   value: string;
   onChange: (value: string) => void;
-  placeholder?: string;
+  inputProps?: React.InputHTMLAttributes<HTMLInputElement>;
 }>) {
   return (
     <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: "#5C4F4A" }}>
       {label}
       <input
         className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#C9996B]"
-        style={{
-          border: "1px solid #C9996B",
-          backgroundColor: "#EDE9E6",
-          color: "#5C4F4A",
-        }}
+        style={{ border: "1px solid #C9996B", backgroundColor: "#EDE9E6", color: "#5C4F4A" }}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
+        {...inputProps}
       />
     </label>
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-// Converts "PMID: 12345678" patterns into markdown links so react-markdown
-// renders them as clickable anchors pointing to pubmed.ncbi.nlm.nih.gov
-function injectPubMedLinks(text: string): string {
-  return text.replace(
-    /PMID:\s*(\d+)/g,
-    (_, pmid) => `[PMID: ${pmid}](https://pubmed.ncbi.nlm.nih.gov/${pmid})`
-  );
-}
-
-// ── Output parser ────────────────────────────────────────────────────────────
-
-type Section = { header: string; body: string };
-
-// Splits the model's structured output into labelled sections.
-// Detects ALL-CAPS headers like "EVIDENCE SUMMARY:" or "SAFE TO PROCEED: YES"
-function parseSections(text: string): Section[] {
-  const sections: Section[] = [];
-  const lines = text.split("\n");
-  let current: Section | null = null;
-
-  for (const line of lines) {
-    const match = line.match(/^([A-Z][A-Z0-9 \-\/]+):\s*(.*)/);
-    if (match) {
-      if (current) sections.push(current);
-      current = { header: match[1].trim(), body: match[2].trim() };
-    } else if (current) {
-      current.body += (current.body ? "\n" : "") + line;
-    } else if (line.trim()) {
-      sections.push({ header: "", body: line });
-    }
-  }
-  if (current) sections.push(current);
-  return sections.map((s) => ({ ...s, body: s.body.trim() }));
-}
-
-// Color-codes the SAFE TO PROCEED badge
-function safeBadgeStyle(value: string): React.CSSProperties {
-  const v = value.toUpperCase();
-  if (v === "YES")         return { backgroundColor: "#dcfce7", color: "#166534" };
-  if (v === "NO")          return { backgroundColor: "#fee2e2", color: "#991b1b" };
-  return                          { backgroundColor: "#fef3c7", color: "#92400e" }; // CONDITIONAL
-}
-
-function ContentRenderer({ text, accentColor }: Readonly<{ text: string; accentColor: string }>) {
-  const sections = parseSections(text);
-  return (
-    <div className="space-y-5">
-      {sections.map((section, i) => {
-        // Inline if the value is short enough to sit next to the label as a badge
-        const isInline = section.body.length > 0
-          && section.body.length < 40
-          && !section.body.includes("\n");
-
-        const badgeStyle: React.CSSProperties =
-          section.header === "SAFE TO PROCEED"
-            ? safeBadgeStyle(section.body)
-            : { backgroundColor: `${accentColor}18`, color: accentColor };
-
-        return (
-          <div key={i}>
-            {section.header && (
-              <div className="flex items-center gap-2 mb-1">
-                <span
-                  className="text-xs font-bold uppercase tracking-widest"
-                  style={{ color: accentColor }}
-                >
-                  {section.header}
-                </span>
-                {isInline && (
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={badgeStyle}
-                  >
-                    {section.body}
-                  </span>
-                )}
-              </div>
-            )}
-            {!isInline && section.body && (
-              <ReactMarkdown
-                components={{
-                  p: ({ children }) => (
-                    <p className="text-sm leading-7 mb-2" style={{ color: "#5C4F4A" }}>{children}</p>
-                  ),
-                  strong: ({ children }) => (
-                    <strong className="font-semibold" style={{ color: "#5C4F4A" }}>{children}</strong>
-                  ),
-                  em: ({ children }) => (
-                    <em className="italic" style={{ color: "#5C4F4A" }}>{children}</em>
-                  ),
-                  ul: ({ children }) => (
-                    <ul className="list-disc pl-5 space-y-1 mb-2">{children}</ul>
-                  ),
-                  ol: ({ children }) => (
-                    <ol className="list-decimal pl-5 space-y-1 mb-2">{children}</ol>
-                  ),
-                  li: ({ children }) => (
-                    <li className="text-sm leading-7" style={{ color: "#5C4F4A" }}>{children}</li>
-                  ),
-                  a: ({ href, children }) => (
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline underline-offset-2 font-medium hover:opacity-70 transition-opacity"
-                      style={{ color: accentColor }}
-                    >
-                      {children}
-                    </a>
-                  ),
-                }}
-              >
-                {injectPubMedLinks(section.body)}
-              </ReactMarkdown>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
+// ── ModuleCard ────────────────────────────────────────────────────────────────
 
 function ModuleCard({
   emoji,
   title,
-  content,
+  module,
   accentColor,
 }: Readonly<{
   emoji: string;
   title: string;
-  content: string;
+  module: ModuleState;
   accentColor: string;
 }>) {
   return (
@@ -391,19 +409,64 @@ function ModuleCard({
       className="rounded-2xl overflow-hidden flex"
       style={{ backgroundColor: "white", border: "1px solid #E0D9D4" }}
     >
-      {/* Left accent bar */}
       <div className="w-1.5 shrink-0" style={{ backgroundColor: accentColor }} />
-
       <div className="flex flex-col gap-3 p-6 w-full">
-        {/* Header */}
         <div className="flex items-center gap-2">
           <span className="text-2xl">{emoji}</span>
-          <h3 className="font-bold text-base" style={{ color: accentColor }}>
-            {title}
-          </h3>
+          <h3 className="font-bold text-base" style={{ color: accentColor }}>{title}</h3>
+          {!module.done && (
+            <span className="ml-auto text-xs animate-pulse" style={{ color: "#5C766D" }}>
+              generating...
+            </span>
+          )}
         </div>
-        {/* Content — structured sections with PMID links */}
-        <ContentRenderer text={content} accentColor={accentColor} />
+
+        {module.done ? (
+          <div className="prose-sm max-w-none">
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => (
+                  <p className="text-sm leading-7 mb-3" style={{ color: "#5C4F4A" }}>{children}</p>
+                ),
+                strong: ({ children }) => (
+                  <strong className="font-semibold" style={{ color: "#5C4F4A" }}>{children}</strong>
+                ),
+                em: ({ children }) => (
+                  <em className="italic" style={{ color: "#5C4F4A" }}>{children}</em>
+                ),
+                ul: ({ children }) => (
+                  <ul className="list-disc pl-5 space-y-1 mb-3 text-sm" style={{ color: "#5C4F4A" }}>{children}</ul>
+                ),
+                ol: ({ children }) => (
+                  <ol className="list-decimal pl-5 space-y-1 mb-3 text-sm" style={{ color: "#5C4F4A" }}>{children}</ol>
+                ),
+                li: ({ children }) => (
+                  <li className="leading-7" style={{ color: "#5C4F4A" }}>{children}</li>
+                ),
+                a: ({ href, children }) => (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-2 font-medium hover:opacity-70 transition-opacity"
+                    style={{ color: accentColor }}
+                  >
+                    {children}
+                  </a>
+                ),
+              }}
+            >
+              {injectPubMedLinks(module.content)}
+            </ReactMarkdown>
+          </div>
+        ) : (
+          <div className="space-y-2 animate-pulse">
+            <div className="h-3 rounded" style={{ backgroundColor: "#EDE9E6", width: "90%" }} />
+            <div className="h-3 rounded" style={{ backgroundColor: "#EDE9E6", width: "75%" }} />
+            <div className="h-3 rounded" style={{ backgroundColor: "#EDE9E6", width: "85%" }} />
+            <div className="h-3 rounded" style={{ backgroundColor: "#EDE9E6", width: "60%" }} />
+          </div>
+        )}
       </div>
     </div>
   );

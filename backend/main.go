@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cancer-to-hell/db"
 	"cancer-to-hell/handlers"
 	"log"
 	"os"
@@ -11,14 +12,14 @@ import (
 )
 
 func main() {
-	// Load environment variables
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("Error loading .env file")
+		log.Println("[main] No .env file found — using environment variables")
 	}
+
+	db.Init("sessions.jsonl")
 
 	r := gin.Default()
 
-	// CORS — allows frontend on localhost:3000 to talk to this backend
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST"},
@@ -26,21 +27,22 @@ func main() {
 		AllowCredentials: true,
 	}))
 
-	// Health check
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"status": "Cancer to Hell is running",
-		})
+		c.JSON(200, gin.H{"status": "Cancer to Hell is running"})
 	})
 
-	// Main debate endpoint
-	r.POST("/debate", handlers.StartDebate)
+	r.GET("/api/v1/sessions", func(c *gin.Context) {
+		c.JSON(200, db.List())
+	})
+
+	r.POST("/api/v1/decision-card", handlers.StartDebate)
+	r.POST("/api/v1/decision-card/stream", handlers.StreamDebate)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
-	log.Printf("Server running on port %s", port)
+	log.Printf("[main] Server running on port %s", port)
 	r.Run(":" + port)
 }
