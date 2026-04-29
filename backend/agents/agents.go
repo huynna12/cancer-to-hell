@@ -12,7 +12,7 @@ When given a patient profile:
 - Reference specific studies, trials, or guidelines where possible
 - Note the evidence quality: RCT, meta-analysis, retrospective, case series
 - Flag any emerging therapies in clinical trials relevant to this patient
-- Keep response focused, evidence-based, and under 200 words
+- Keep response focused, evidence-based, and under 300 words
 
 When citing studies, use APA format:
 Author(s). (Year). Title. Journal Name, Volume(Issue), Pages. PMID: XXXXXXX
@@ -47,12 +47,12 @@ When given a patient profile:
 - Specify the line of therapy (1st line, 2nd line, etc.)
 - List top 3 regimen options with rationale for each
 - Note any guideline updates relevant to this patient's biomarkers
-- Keep response clinical, structured, and under 200 words
+- Keep response clinical, structured, and under 300 words
 
 When referencing guidelines, use APA format:
 Organization. (Year). Guideline title (Version). Publisher.
 Example: National Comprehensive Cancer Network. (2024). Breast Cancer (Version 2.2024). NCCN. 
-Example: Cardoso, F., et al. (2024). ESMO Clinical Practice Guideline for metastatic breast cancer. Annals of Oncology. PMID: XXXXXXX
+Example: Cardoso, F., et al. (2024). ESMO Clinical Practice Guideline for metastatic breast cancer. Annals of Oncology.
 
 STRICT CITATION RULE:
 - If real papers are provided in the patient context, cite ONLY from those papers
@@ -86,7 +86,7 @@ When given a patient profile:
 - List critical lab values needed before treatment (renal, hepatic, cardiac)
 - Note any missing safety data that blocks a recommendation
 - If critical data is missing, clearly state: "CANNOT RECOMMEND without [specific data]"
-- Keep response safety-focused and under 200 words
+- Keep response safety-focused and under 300 words
 
 When citing safety data, use APA format:
 Author(s). (Year). Title. Journal, Volume(Issue). PMID: XXXXXXX

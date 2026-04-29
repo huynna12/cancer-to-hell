@@ -54,7 +54,13 @@ func StartDebate(c *gin.Context) {
 	// The model reads the full abstract so it reasons from actual study findings,
 	// not just titles. This is what makes citations clinically meaningful.
 	if len(papers) > 0 {
-		patientContext += "\nREAL PEER-REVIEWED PAPERS — READ THE ABSTRACTS TO GROUND YOUR REASONING:\n"
+		patientContext += "\nINSTRUCTIONS FOR USING THE PAPERS BELOW:\n" +
+			"- These are the most recent peer-reviewed studies retrieved specifically for this patient case.\n" +
+			"- Base your clinical reasoning on what the abstracts actually found — read the RESULTS and CONCLUSIONS sections.\n" +
+			"- If a retrieved abstract contradicts your training knowledge or older guidelines, DEFER TO THE ABSTRACT. Recent evidence overrides older data.\n" +
+			"- Cite in APA format using the exact author names, year, title, journal, and PMID provided below.\n" +
+			"- Do not invent citations or use PMIDs not listed here.\n"
+		patientContext += "\nREAL PEER-REVIEWED PAPERS:\n"
 		for i, p := range papers {
 			authorStr := "Unknown Authors"
 			if len(p.Authors) > 3 {
@@ -70,12 +76,6 @@ func StartDebate(c *gin.Context) {
 				patientContext += fmt.Sprintf("    Abstract: %s\n", p.Abstract)
 			}
 		}
-		patientContext += "\nINSTRUCTIONS FOR USING THESE PAPERS:\n" +
-			"- These are the most recent peer-reviewed studies retrieved specifically for this patient case.\n" +
-			"- Base your clinical reasoning on what the abstracts actually found — read the RESULTS and CONCLUSIONS sections.\n" +
-			"- If a retrieved abstract contradicts your training knowledge or older guidelines, DEFER TO THE ABSTRACT. Recent evidence overrides older data.\n" +
-			"- Cite in APA format using the exact author names, year, title, journal, and PMID provided above.\n" +
-			"- Do not invent citations or use PMIDs not listed here.\n"
 	}
 
 	// Step 6 — run all 3 modules concurrently using goroutines

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 
 type DebateResponse = {
   status: string;
@@ -104,7 +105,7 @@ export default function Home() {
             Patient Profile
           </h2>
           <p className="text-xs mb-4" style={{ color: "#5C766D" }}>
-            All fields marked with labs are required before a recommendation can be generated.
+            Fields marked with * are required before a recommendation can be generated.
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -196,7 +197,7 @@ export default function Home() {
               />
             </div>
 
-{/* Disclaimer */}
+            {/* Disclaimer */}
             <div
               className="rounded-xl p-4 text-center"
               style={{ backgroundColor: "white", border: "1px solid #5C766D" }}
@@ -227,7 +228,7 @@ function Field({
     <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: "#5C4F4A" }}>
       {label}
       <input
-        className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
+        className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#C9996B]"
         style={{
           border: "1px solid #C9996B",
           backgroundColor: "#EDE9E6",
@@ -240,29 +241,130 @@ function Field({
   );
 }
 
-// Splits text on "PMID: 12345678" and turns each match into a PubMed link
-function renderWithLinks(text: string, linkColor: string) {
-  const parts = text.split(/(PMID:\s*\d+)/g);
-  return parts.map((part, i) => {
-    const match = part.match(/PMID:\s*(\d+)/);
-    if (match) {
-      const pmid = match[1];
-      return (
-        <a
-          key={i}
-          href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 font-medium hover:opacity-70 transition-opacity"
-          style={{ color: linkColor }}
-        >
-          {part}
-        </a>
-      );
-    }
-    return <span key={i}>{part}</span>;
-  });
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Converts "PMID: 12345678" patterns into markdown links so react-markdown
+// renders them as clickable anchors pointing to pubmed.ncbi.nlm.nih.gov
+function injectPubMedLinks(text: string): string {
+  return text.replace(
+    /PMID:\s*(\d+)/g,
+    (_, pmid) => `[PMID: ${pmid}](https://pubmed.ncbi.nlm.nih.gov/${pmid})`
+  );
 }
+
+// ── Output parser ────────────────────────────────────────────────────────────
+
+type Section = { header: string; body: string };
+
+// Splits the model's structured output into labelled sections.
+// Detects ALL-CAPS headers like "EVIDENCE SUMMARY:" or "SAFE TO PROCEED: YES"
+function parseSections(text: string): Section[] {
+  const sections: Section[] = [];
+  const lines = text.split("\n");
+  let current: Section | null = null;
+
+  for (const line of lines) {
+    const match = line.match(/^([A-Z][A-Z0-9 \-\/]+):\s*(.*)/);
+    if (match) {
+      if (current) sections.push(current);
+      current = { header: match[1].trim(), body: match[2].trim() };
+    } else if (current) {
+      current.body += (current.body ? "\n" : "") + line;
+    } else if (line.trim()) {
+      sections.push({ header: "", body: line });
+    }
+  }
+  if (current) sections.push(current);
+  return sections.map((s) => ({ ...s, body: s.body.trim() }));
+}
+
+// Color-codes the SAFE TO PROCEED badge
+function safeBadgeStyle(value: string): React.CSSProperties {
+  const v = value.toUpperCase();
+  if (v === "YES")         return { backgroundColor: "#dcfce7", color: "#166534" };
+  if (v === "NO")          return { backgroundColor: "#fee2e2", color: "#991b1b" };
+  return                          { backgroundColor: "#fef3c7", color: "#92400e" }; // CONDITIONAL
+}
+
+function ContentRenderer({ text, accentColor }: Readonly<{ text: string; accentColor: string }>) {
+  const sections = parseSections(text);
+  return (
+    <div className="space-y-5">
+      {sections.map((section, i) => {
+        // Inline if the value is short enough to sit next to the label as a badge
+        const isInline = section.body.length > 0
+          && section.body.length < 40
+          && !section.body.includes("\n");
+
+        const badgeStyle: React.CSSProperties =
+          section.header === "SAFE TO PROCEED"
+            ? safeBadgeStyle(section.body)
+            : { backgroundColor: `${accentColor}18`, color: accentColor };
+
+        return (
+          <div key={i}>
+            {section.header && (
+              <div className="flex items-center gap-2 mb-1">
+                <span
+                  className="text-xs font-bold uppercase tracking-widest"
+                  style={{ color: accentColor }}
+                >
+                  {section.header}
+                </span>
+                {isInline && (
+                  <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={badgeStyle}
+                  >
+                    {section.body}
+                  </span>
+                )}
+              </div>
+            )}
+            {!isInline && section.body && (
+              <ReactMarkdown
+                components={{
+                  p: ({ children }) => (
+                    <p className="text-sm leading-7 mb-2" style={{ color: "#5C4F4A" }}>{children}</p>
+                  ),
+                  strong: ({ children }) => (
+                    <strong className="font-semibold" style={{ color: "#5C4F4A" }}>{children}</strong>
+                  ),
+                  em: ({ children }) => (
+                    <em className="italic" style={{ color: "#5C4F4A" }}>{children}</em>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="list-disc pl-5 space-y-1 mb-2">{children}</ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol className="list-decimal pl-5 space-y-1 mb-2">{children}</ol>
+                  ),
+                  li: ({ children }) => (
+                    <li className="text-sm leading-7" style={{ color: "#5C4F4A" }}>{children}</li>
+                  ),
+                  a: ({ href, children }) => (
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 font-medium hover:opacity-70 transition-opacity"
+                      style={{ color: accentColor }}
+                    >
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {injectPubMedLinks(section.body)}
+              </ReactMarkdown>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 
 function ModuleCard({
   emoji,
@@ -291,13 +393,8 @@ function ModuleCard({
             {title}
           </h3>
         </div>
-        {/* Content — PMIDs rendered as clickable PubMed links */}
-        <div
-          className="text-sm leading-7 whitespace-pre-wrap"
-          style={{ color: "#5C4F4A" }}
-        >
-          {renderWithLinks(content, accentColor)}
-        </div>
+        {/* Content — structured sections with PMID links */}
+        <ContentRenderer text={content} accentColor={accentColor} />
       </div>
     </div>
   );
