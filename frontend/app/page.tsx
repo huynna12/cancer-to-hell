@@ -10,6 +10,7 @@ type AppState = {
   statusMessage: string;
   evidence: ModuleState;
   guideline: ModuleState;
+  safety: ModuleState;
   missing_data?: string[];
   blockMessage?: string;
   hallucinatedCitations?: string[];
@@ -21,6 +22,7 @@ const IDLE: AppState = {
   statusMessage: "",
   evidence: { content: "", done: false },
   guideline: { content: "", done: false },
+  safety: { content: "", done: false },
 };
 
 const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
@@ -86,6 +88,7 @@ export default function Home() {
       statusMessage: "Connecting...",
       evidence: { content: "", done: false },
       guideline: { content: "", done: false },
+      safety: { content: "", done: false },
     });
 
     const payload = {
@@ -343,6 +346,12 @@ export default function Home() {
                 title="Guideline Alignment"
                 module={state.guideline}
                 accentColor="#5C766D"
+              />
+              <ModuleCard
+                emoji="⚠️"
+                title="Risk"
+                module={state.safety}
+                accentColor="#A65A4F"
               />
             </div>
 

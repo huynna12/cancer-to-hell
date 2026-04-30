@@ -75,6 +75,7 @@ func streamDebateEvents(input PatientInput, eventCh chan<- sseEvent) {
 		Stage:      input.Stage,
 		Evidence:   outputs["evidence"],
 		Guideline:  outputs["guideline"],
+		Safety:     outputs["safety"],
 	})
 
 	done := sseEvent{Type: "done"}
@@ -101,7 +102,7 @@ func fetchPapers(input PatientInput) ([]pubmed.Paper, map[string]bool) {
 
 func runClinicalModules(patientContext string, allowedPMIDs map[string]bool, papers []pubmed.Paper, eventCh chan<- sseEvent) (map[string]string, []string) {
 	var wg sync.WaitGroup
-	resultCh := make(chan moduleOutput, 2)
+	resultCh := make(chan moduleOutput, 3)
 
 	modules := []struct {
 		name string
@@ -109,6 +110,7 @@ func runClinicalModules(patientContext string, allowedPMIDs map[string]bool, pap
 	}{
 		{"evidence", agents.EvidenceRetrieval},
 		{"guideline", agents.GuidelineAlignment},
+		{"safety", agents.SafetyRisk},
 	}
 
 	for _, mod := range modules {

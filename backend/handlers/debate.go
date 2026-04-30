@@ -112,7 +112,7 @@ func buildContext(input PatientInput, papers []pubmed.Paper) string {
 
 func runModules(patientContext string) (map[string]string, error) {
 	var wg sync.WaitGroup
-	resultCh := make(chan moduleOutput, 2)
+	resultCh := make(chan moduleOutput, 3)
 
 	modules := []struct {
 		name string
@@ -120,6 +120,7 @@ func runModules(patientContext string) (map[string]string, error) {
 	}{
 		{"evidence", agents.EvidenceRetrieval},
 		{"guideline", agents.GuidelineAlignment},
+		{"safety", agents.SafetyRisk},
 	}
 
 	for _, mod := range modules {
@@ -192,12 +193,14 @@ func StartDebate(c *gin.Context) {
 		Stage:      input.Stage,
 		Evidence:   outputs["evidence"],
 		Guideline:  outputs["guideline"],
+		Safety:     outputs["safety"],
 	})
 
 	resp := gin.H{
 		"status":    "ok",
 		"evidence":  outputs["evidence"],
 		"guideline": outputs["guideline"],
+		"safety":    outputs["safety"],
 	}
 	if len(allHallucinated) > 0 {
 		resp["hallucinated_citations"] = allHallucinated
