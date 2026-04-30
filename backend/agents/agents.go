@@ -14,6 +14,21 @@ var headingLine = regexp.MustCompile(`(?mi)^\s*(evidence retrieval|guideline ali
 var sentenceBoundary = regexp.MustCompile(`(?m)([.!?])\s+`)
 var inlineSpace = regexp.MustCompile(`\s+`)
 
+// malformedCitation matches sentences using the bad "per Author et al." form
+// instead of the proper trailing (Author et al., Year. PMID: XXXXXXX) format.
+var malformedCitation = regexp.MustCompile(`(?i)\bper\s+[A-Z][a-zA-Z\-']+\s+et\s+al`)
+
+func filterMalformed(sentences []string) []string {
+	out := make([]string, 0, len(sentences))
+	for _, s := range sentences {
+		if malformedCitation.MatchString(s) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 func uniqueSentences(sentences []string) []string {
 	seen := map[string]bool{}
 	result := make([]string, 0, len(sentences))
@@ -46,6 +61,7 @@ func cleanResponse(response string) string {
 	}
 
 	chunks := sentenceBoundary.Split(response, -1)
+	chunks = filterMalformed(chunks)
 	chunks = uniqueSentences(chunks)
 	if len(chunks) > 5 {
 		chunks = chunks[:5]
@@ -80,19 +96,46 @@ CITATION RULES — read carefully:
 	return cleanResponse(result), err
 }
 
+func SafetyRisk(patientContext string) (string, error) {
+	system := `You are a clinical pharmacologist specializing in oncology risk assessment.
+
+RULE: Output ONLY a single flowing paragraph of 3-4 sentences. No headers, no bullet points, no numbered lists, no regimen summary list, no self-check notes, and no chain-of-thought. Start directly with the risk reasoning.
+
+For the 2-3 regimens most likely to be considered for THIS specific patient, state the single most important risk or adverse event for each, in prose. Account for this patient's labs, comorbidities, and current medications when relevant.
+
+CITATION FORMAT — strict:
+- Citations go at the END of a complete sentence in this exact format: (Author et al., Year. PMID: 28578601)
+- NEVER write a citation inside another parenthetical
+- NEVER use the word "per" before an author name
+- NEVER nest parentheses
+
+CONTENT RULES:
+- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
+- If a risk statement comes from general clinical knowledge rather than a listed paper, write the reasoning without a citation
+- Never invent PMIDs, author names, trial names, or journals`
+
+	result, err := gemma.Ask(system, patientContext)
+	return cleanResponse(result), err
+}
+
 func GuidelineAlignment(patientContext string) (string, error) {
 	system := `You are a clinical oncologist specializing in metastatic breast cancer guidelines.
 
-RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
+RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no regimen summary list, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
 
 Write 4-6 sentences that map THIS specific patient to guideline-concordant treatment pathways. Your reasoning should:
 - Name the line of therapy (first-line, second-line, etc.) and why
-- List the top 2-3 regimen options woven naturally into the prose, with a brief rationale for each
+- Discuss the top 2-3 regimen options as part of the prose, each with a brief rationale
 - Reference the relevant guideline body (NCCN, ASCO, ESMO) and year
-- Embed any relevant PMID inline like: (Author et al., Year. PMID: 28578601)
 - End with a clear recommendation for this specific patient given their biomarkers and prior therapy
 
-CITATION RULES — read carefully:
+CITATION FORMAT — strict:
+- Citations go at the END of a complete sentence in this exact format: (Author et al., Year. PMID: 28578601)
+- NEVER write a citation inside another parenthetical, like "(rationale per Author et al., Year, PMID: ...)"
+- NEVER use the word "per" before an author name — use a complete sentence and put the citation at the end
+- NEVER nest parentheses
+
+CONTENT RULES:
 - Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
 - Use the exact PMID numbers provided — do not change or guess them
 - If no papers are listed in the context, write the reasoning without any citations
