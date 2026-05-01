@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -101,9 +100,6 @@ func fetchPapers(input PatientInput) ([]pubmed.Paper, map[string]bool) {
 }
 
 func runClinicalModules(patientContext string, allowedPMIDs map[string]bool, papers []pubmed.Paper, eventCh chan<- sseEvent) (map[string]string, []string) {
-	var wg sync.WaitGroup
-	resultCh := make(chan moduleOutput, 3)
-
 	modules := []struct {
 		name string
 		fn   func(string) (string, error)
@@ -113,35 +109,25 @@ func runClinicalModules(patientContext string, allowedPMIDs map[string]bool, pap
 		{"safety", agents.SafetyRisk},
 	}
 
-	for _, mod := range modules {
-		wg.Add(1)
-		go func(name string, fn func(string) (string, error)) {
-			defer wg.Done()
-			result, err := fn(patientContext)
-			resultCh <- moduleOutput{name: name, result: result, err: err}
-		}(mod.name, mod.fn)
-	}
-
-	go func() {
-		wg.Wait()
-		close(resultCh)
-	}()
-
 	outputs := make(map[string]string)
 	var allHallucinated []string
 
-	for output := range resultCh {
-		content := output.result
-		if output.err != nil {
-			content = "Module failed: " + output.err.Error()
+	// Sequential: each module gets a clean turn with no concurrent API pressure.
+	// Running all three in parallel saturates the free-tier rate limit and causes
+	// the second and third requests to queue past the 5-minute timeout.
+	for _, mod := range modules {
+		result, err := mod.fn(patientContext)
+		content := result
+		if err != nil {
+			content = "Module failed: " + err.Error()
 		}
 
 		cleaned, found := validateCitations(content, allowedPMIDs)
 		withRefs := appendAPAReferences(cleaned, papers)
-		outputs[output.name] = withRefs
+		outputs[mod.name] = withRefs
 		allHallucinated = append(allHallucinated, found...)
 
-		evt := sseEvent{Type: "module", Name: output.name, Content: withRefs}
+		evt := sseEvent{Type: "module", Name: mod.name, Content: withRefs}
 		if len(found) > 0 {
 			evt.HallucinatedCitations = found
 		}
