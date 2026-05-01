@@ -235,25 +235,8 @@ func fetchPapers(ids []string) ([]Paper, error) {
 	for _, a := range result.Articles {
 		pmid := a.MedlineCitation.PMID
 
-		authors := make([]string, 0)
-		for _, auth := range a.MedlineCitation.Article.AuthorList.Authors {
-			if auth.LastName != "" {
-				authors = append(authors, auth.LastName+", "+auth.Initials+".")
-			}
-		}
-
-		var abstractParts []string
-		for _, s := range a.MedlineCitation.Article.Abstract.Sections {
-			if s.Text == "" {
-				continue
-			}
-			if s.Label != "" {
-				abstractParts = append(abstractParts, s.Label+": "+s.Text)
-			} else {
-				abstractParts = append(abstractParts, s.Text)
-			}
-		}
-		abstractText := strings.Join(abstractParts, " ")
+		authors := formatAuthors(a.MedlineCitation.Article.AuthorList)
+		abstractText := buildAbstractText(a.MedlineCitation.Article.Abstract.Sections)
 
 		papers = append(papers, Paper{
 			Title:    a.MedlineCitation.Article.Title.Value,
@@ -267,6 +250,34 @@ func fetchPapers(ids []string) ([]Paper, error) {
 	}
 
 	return papers, nil
+}
+
+// formatAuthors converts an authorList to a slice of formatted author strings.
+func formatAuthors(list authorList) []string {
+	out := make([]string, 0)
+	for _, auth := range list.Authors {
+		if auth.LastName == "" {
+			continue
+		}
+		out = append(out, auth.LastName+", "+auth.Initials+".")
+	}
+	return out
+}
+
+// buildAbstractText joins abstract sections into a single string.
+func buildAbstractText(sections []abstractSection) string {
+	parts := make([]string, 0)
+	for _, s := range sections {
+		if s.Text == "" {
+			continue
+		}
+		if s.Label != "" {
+			parts = append(parts, s.Label+": "+s.Text)
+		} else {
+			parts = append(parts, s.Text)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func pubmedTimeout() time.Duration {
