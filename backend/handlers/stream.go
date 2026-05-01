@@ -2,17 +2,14 @@ package handlers
 
 import (
 	"cancer-to-hell/agents"
-	"cancer-to-hell/db"
 	"cancer-to-hell/pubmed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type sseEvent struct {
@@ -41,6 +38,11 @@ func StreamDebate(c *gin.Context) {
 		return
 	}
 
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+
 	eventCh := make(chan sseEvent, 10)
 
 	go streamDebateEvents(input, eventCh)
@@ -65,17 +67,7 @@ func streamDebateEvents(input PatientInput, eventCh chan<- sseEvent) {
 	patientContext := buildContext(input, papers)
 	eventCh <- sseEvent{Type: "status", Message: fmt.Sprintf("Running clinical modules (found %d papers)...", len(papers))}
 
-	outputs, allHallucinated := runClinicalModules(patientContext, allowedPMIDs, papers, eventCh)
-
-	go db.Save(db.Session{
-		ID:         uuid.New().String(),
-		CreatedAt:  time.Now(),
-		CancerType: input.CancerType,
-		Stage:      input.Stage,
-		Evidence:   outputs["evidence"],
-		Guideline:  outputs["guideline"],
-		Safety:     outputs["safety"],
-	})
+	_, allHallucinated := runClinicalModules(patientContext, allowedPMIDs, papers, eventCh)
 
 	done := sseEvent{Type: "done"}
 	if len(allHallucinated) > 0 {

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"cancer-to-hell/db"
 	"cancer-to-hell/handlers"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -16,12 +16,18 @@ func main() {
 		log.Println("[main] No .env file found — using environment variables")
 	}
 
-	db.Init("sessions.jsonl")
-
 	r := gin.Default()
 
+	origins := []string{"http://localhost:3000"}
+	if env := os.Getenv("FRONTEND_ORIGINS"); env != "" {
+		origins = strings.Split(env, ",")
+		for i := range origins {
+			origins[i] = strings.TrimSpace(origins[i])
+		}
+	}
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST"},
 		AllowHeaders:     []string{"Content-Type"},
 		AllowCredentials: true,
@@ -29,10 +35,6 @@ func main() {
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "Cancer to Hell is running"})
-	})
-
-	r.GET("/api/v1/sessions", func(c *gin.Context) {
-		c.JSON(200, db.List())
 	})
 
 	r.POST("/api/v1/decision-card", handlers.StartDebate)

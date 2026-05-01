@@ -1,0 +1,9 @@
+.env
+.env.*
+*.jsonl
+sessions.jsonl
+.git
+.gitignore
+Dockerfile
+.dockerignore
+README.md

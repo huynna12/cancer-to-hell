@@ -1,14 +1,17 @@
 package pubmed
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -18,6 +21,7 @@ const (
 
 // cache avoids hitting PubMed repeatedly for the same query within a process lifetime.
 var cache sync.Map // map[string][]Paper
+var httpClient = &http.Client{Timeout: pubmedTimeout()}
 
 // Paper is one PubMed article returned to the caller.
 type Paper struct {
@@ -34,8 +38,6 @@ type Paper struct {
 
 // xmlText collects ALL character data inside an XML element, including text
 // nested inside child elements like <i>, <b>, <sup>, etc.
-// PubMed wraps gene names (e.g. <i>BRCA1/2</i>) inside ArticleTitle, so
-// Go's default string decoder silently drops that text.
 type xmlText struct {
 	Value string
 }
@@ -62,8 +64,6 @@ func (x *xmlText) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 }
 
 // abstractSection maps to one <AbstractText> element.
-// Structured abstracts have multiple sections with a Label attribute
-// (BACKGROUND, METHODS, RESULTS, CONCLUSIONS).
 type abstractSection struct {
 	Label string
 	Text  string
@@ -178,7 +178,11 @@ func searchIDs(query string) ([]string, error) {
 		params.Set("api_key", key)
 	}
 
-	resp, err := http.Get(searchURL + "?" + params.Encode())
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, searchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pubmed search failed: %s", err)
 	}
@@ -207,7 +211,11 @@ func fetchPapers(ids []string) ([]Paper, error) {
 		params.Set("api_key", key)
 	}
 
-	resp, err := http.Get(fetchURL + "?" + params.Encode())
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, fetchURL+"?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("pubmed fetch failed: %s", err)
 	}
@@ -227,7 +235,6 @@ func fetchPapers(ids []string) ([]Paper, error) {
 	for _, a := range result.Articles {
 		pmid := a.MedlineCitation.PMID
 
-		// Build author list
 		authors := make([]string, 0)
 		for _, auth := range a.MedlineCitation.Article.AuthorList.Authors {
 			if auth.LastName != "" {
@@ -235,8 +242,6 @@ func fetchPapers(ids []string) ([]Paper, error) {
 			}
 		}
 
-		// Build abstract — join structured sections with their labels
-		// e.g. "BACKGROUND: ... METHODS: ... RESULTS: ... CONCLUSIONS: ..."
 		var abstractParts []string
 		for _, s := range a.MedlineCitation.Article.Abstract.Sections {
 			if s.Text == "" {
@@ -262,4 +267,16 @@ func fetchPapers(ids []string) ([]Paper, error) {
 	}
 
 	return papers, nil
+}
+
+func pubmedTimeout() time.Duration {
+	raw := os.Getenv("PUBMED_TIMEOUT_SECONDS")
+	if raw == "" {
+		return 20 * time.Second
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return 20 * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }

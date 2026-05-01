@@ -195,6 +195,17 @@ export default function Home() {
     <main className="min-h-screen" style={{ backgroundColor: "#EDE9E6" }}>
       <div className="mx-auto max-w-6xl px-6 py-10">
 
+        {/* Medical disclaimer */}
+        <div
+          role="alert"
+          className="mb-6 rounded-xl px-4 py-3 text-sm"
+          style={{ backgroundColor: "#FFF4E0", border: "1px solid #C9996B", color: "#5C4F4A" }}
+        >
+          <strong>Research and educational use only.</strong> This tool is a portfolio
+          demonstration of multi-agent LLM orchestration. Outputs are not medical advice,
+          have not been clinically validated, and must not be used to make treatment decisions.
+        </div>
+
         {/* Header */}
         <header className="mb-8">
           <div className="flex items-center gap-3 mb-2">

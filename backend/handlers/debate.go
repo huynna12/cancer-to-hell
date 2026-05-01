@@ -2,16 +2,12 @@ package handlers
 
 import (
 	"cancer-to-hell/agents"
-	"cancer-to-hell/db"
 	"cancer-to-hell/pubmed"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/gin-gonic/gin"
 )
@@ -185,16 +181,6 @@ func StartDebate(c *gin.Context) {
 		outputs[name] = appendAPAReferences(cleaned, papers)
 		allHallucinated = append(allHallucinated, found...)
 	}
-
-	go db.Save(db.Session{
-		ID:         uuid.New().String(),
-		CreatedAt:  time.Now(),
-		CancerType: input.CancerType,
-		Stage:      input.Stage,
-		Evidence:   outputs["evidence"],
-		Guideline:  outputs["guideline"],
-		Safety:     outputs["safety"],
-	})
 
 	resp := gin.H{
 		"status":    "ok",
