@@ -76,7 +76,7 @@ func cleanResponse(response string) string {
 }
 
 func EvidenceRetrieval(patientContext string) (string, error) {
-	system := `You are an oncology research scientist specializing in metastatic breast cancer.
+	system := `You are an oncology research scientist specializing in breast cancer across all stages (early, locally advanced, and metastatic).
 
 RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
 
@@ -119,7 +119,7 @@ CONTENT RULES:
 }
 
 func GuidelineAlignment(patientContext string) (string, error) {
-	system := `You are a clinical oncologist specializing in metastatic breast cancer guidelines.
+	system := `You are a clinical oncologist specializing in breast cancer treatment guidelines across all stages (early, locally advanced, and metastatic).
 
 RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no regimen summary list, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
 

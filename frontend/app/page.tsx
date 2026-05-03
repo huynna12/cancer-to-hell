@@ -54,8 +54,8 @@ export default function Home() {
   const [state, setState] = useState<AppState>(IDLE);
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  const [cancerType, setCancerType] = useState("Metastatic Breast Cancer");
-  const [stage, setStage] = useState("IV");
+  const cancerType = "Breast Cancer";
+  const [stage, setStage] = useState("Stage IV (metastatic)");
   const [biomarkers, setBiomarkers] = useState("HR+,HER2-,BRCA1");
   const [ecog, setEcog] = useState("1");
   const [priorLines, setPriorLines] = useState("Tamoxifen");
@@ -241,8 +241,27 @@ export default function Home() {
           </p>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Cancer Type" value={cancerType} onChange={setCancerType} />
-            <Field label="Stage" value={stage} onChange={setStage} />
+            <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: "#5C4F4A" }}>
+              Cancer Type
+              <input
+                className="rounded-lg px-3 py-2 text-sm outline-none cursor-not-allowed"
+                style={{ border: "1px solid #C9996B", backgroundColor: "#EDE9E6", color: "#5C4F4A", opacity: 0.7 }}
+                value={cancerType}
+                readOnly
+                disabled
+              />
+            </label>
+            <Select
+              label="Stage"
+              value={stage}
+              onChange={setStage}
+              options={[
+                "Stage I (early)",
+                "Stage II (early)",
+                "Stage III (locally advanced)",
+                "Stage IV (metastatic)",
+              ]}
+            />
             <Field label="Biomarkers (comma separated)" value={biomarkers} onChange={setBiomarkers} />
             <Field
               label="ECOG Performance Status * (0–4)"
@@ -407,6 +426,36 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         {...inputProps}
       />
+    </label>
+  );
+}
+
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+}: Readonly<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}>) {
+  return (
+    <label className="flex flex-col gap-1 text-sm font-medium" style={{ color: "#5C4F4A" }}>
+      {label}
+      <select
+        className="rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#C9996B]"
+        style={{ border: "1px solid #C9996B", backgroundColor: "#EDE9E6", color: "#5C4F4A" }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }

@@ -7,10 +7,40 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
+
+// cleanTerm strips numbers, percentages, parentheticals, and trailing
+// punctuation from a biomarker string so it works as a PubMed search term.
+// Example: "ER-positive 95%" → "ER-positive"; "HER2-positive (IHC 3+)" → "HER2-positive"
+var biomarkerNoise = regexp.MustCompile(`\s*\([^)]*\)|[\d]+%?|[+]+`)
+
+func cleanTerm(s string) string {
+	s = biomarkerNoise.ReplaceAllString(s, "")
+	s = strings.Trim(s, " ,.:;-")
+	return strings.TrimSpace(s)
+}
+
+// buildSearchQuery produces a focused PubMed query: cancer type + up to 3
+// cleaned biomarker keywords + "treatment". Avoids long sentence-like queries
+// that PubMed AND's into zero results.
+func buildSearchQuery(cancerType string, biomarkers []string) string {
+	parts := []string{cancerType}
+	for i, b := range biomarkers {
+		if i >= 3 {
+			break
+		}
+		c := cleanTerm(b)
+		if c != "" {
+			parts = append(parts, c)
+		}
+	}
+	parts = append(parts, "treatment")
+	return strings.Join(parts, " ")
+}
 
 type sseEvent struct {
 	Type                  string   `json:"type"`
@@ -77,10 +107,18 @@ func streamDebateEvents(input PatientInput, eventCh chan<- sseEvent) {
 }
 
 func fetchPapers(input PatientInput) ([]pubmed.Paper, map[string]bool) {
-	searchQuery := input.CancerType + " " + strings.Join(input.Biomarkers, " ") + " treatment"
+	searchQuery := buildSearchQuery(input.CancerType, input.Biomarkers)
 	papers, err := pubmed.Search(searchQuery)
-	if err != nil {
-		papers = []pubmed.Paper{}
+	if err != nil || len(papers) == 0 {
+		// Fallback: strip to just cancer type + first biomarker keyword
+		fallback := input.CancerType + " treatment"
+		if len(input.Biomarkers) > 0 {
+			fallback = input.CancerType + " " + cleanTerm(input.Biomarkers[0]) + " treatment"
+		}
+		papers, err = pubmed.Search(fallback)
+		if err != nil {
+			papers = []pubmed.Paper{}
+		}
 	}
 
 	allowedPMIDs := make(map[string]bool, len(papers))

@@ -4,6 +4,7 @@ import (
 	"cancer-to-hell/handlers"
 	"log"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/gin-contrib/cors"
@@ -26,8 +27,18 @@ func main() {
 		}
 	}
 
+	allowSuffix := strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN_SUFFIX")) // e.g. ".vercel.app"
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     origins,
+		AllowOriginFunc: func(origin string) bool {
+			if slices.Contains(origins, origin) {
+				return true
+			}
+			if allowSuffix != "" && strings.HasSuffix(origin, allowSuffix) {
+				return true
+			}
+			return false
+		},
 		AllowMethods:     []string{"GET", "POST"},
 		AllowHeaders:     []string{"Content-Type"},
 		AllowCredentials: true,

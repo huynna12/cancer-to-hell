@@ -161,10 +161,17 @@ func StartDebate(c *gin.Context) {
 		return
 	}
 
-	searchQuery := input.CancerType + " " + strings.Join(input.Biomarkers, " ") + " treatment"
+	searchQuery := buildSearchQuery(input.CancerType, input.Biomarkers)
 	papers, err := pubmed.Search(searchQuery)
-	if err != nil {
-		papers = []pubmed.Paper{}
+	if err != nil || len(papers) == 0 {
+		fallback := input.CancerType + " treatment"
+		if len(input.Biomarkers) > 0 {
+			fallback = input.CancerType + " " + cleanTerm(input.Biomarkers[0]) + " treatment"
+		}
+		papers, err = pubmed.Search(fallback)
+		if err != nil {
+			papers = []pubmed.Paper{}
+		}
 	}
 
 	allowedPMIDs := make(map[string]bool, len(papers))
