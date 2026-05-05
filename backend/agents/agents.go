@@ -80,17 +80,18 @@ func EvidenceRetrieval(patientContext string) (string, error) {
 
 RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
 
-Write 4-6 sentences that reason through the strongest evidence for treating THIS specific patient. Weave citations inline where they exist. For every study you cite, embed the PMID at the end of the sentence like this: (Author et al., Year. PMID: 28578601)
+Write 3-5 sentences that reason through the strongest evidence for treating THIS specific patient. Weave citations inline where they exist. For every study you cite, embed the PMID at the end of the sentence like this: (Author et al., Year. PMID: 28578601)
 
 Your reasoning should:
 - Connect the patient's specific biomarkers and prior therapy to the evidence
 - End with a brief note on evidence quality (RCT, retrospective, etc.)
 
 CITATION RULES — read carefully:
-- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
-- Use the exact PMID numbers provided — do not change or guess them
-- If no papers are listed in the context, write the reasoning without any citations
-- Never invent PMIDs, author names, trial names, or journals`
+- When a claim is supported by a paper listed under "REAL PEER-REVIEWED PAPERS" in the patient context, cite it inline as (Author et al., Year. PMID: 28578601). Use the EXACT PMID provided — do not change or guess.
+- When a claim comes from your own pre-trained clinical knowledge (e.g. NCCN guideline content, well-known landmark trial names like CLEOPATRA or KATHERINE, standard dosing) and is NOT covered by a listed paper, attribute it inline using EXACTLY this format: (Gemini). The literal seven characters: open-paren, capital G, lowercase emini, close-paren. Do NOT write variants like (NCCN, 2023), (per ASCO), (NCCN guidelines), (clinical knowledge), (Gemini knowledge), or any other form — only the exact token "(Gemini)".
+- Never invent PMIDs, author names, journals, or trial details. If you are unsure whether a fact is true, omit it.
+- ABSOLUTE RULE: NEVER write an author-year citation like "(McAndrew & Finn, 2020)" or "(Roskoski, 2024)" or "(Smith et al., 2021)" UNLESS that exact paper is listed in "REAL PEER-REVIEWED PAPERS" with a matching PMID. If a paper is not in the list, you MUST use "(Gemini)" instead — even if you are confident the paper exists. The reader has no way to verify a citation without a PMID, so author-year-without-PMID is forbidden. Trial NAMES (e.g. "MONALEESA-2 trial", "the CLEOPATRA study") may appear in prose without parenthetical citation, attributed by "(Gemini)" at the end of the sentence.
+- Combine both sources naturally: cite real papers where they apply, and use (Gemini) where you are drawing on general knowledge. A typical paragraph may have a mix of (Author et al., Year. PMID: ...) and (Gemini) attributions.`
 
 	result, err := gemma.Ask(system, patientContext)
 	return cleanResponse(result), err
@@ -110,9 +111,11 @@ CITATION FORMAT — strict:
 - NEVER nest parentheses
 
 CONTENT RULES:
-- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
-- If a risk statement comes from general clinical knowledge rather than a listed paper, write the reasoning without a citation
-- Never invent PMIDs, author names, trial names, or journals`
+- When a claim is supported by a paper listed under "REAL PEER-REVIEWED PAPERS" in the patient context, cite it inline as (Author et al., Year. PMID: 28578601). Use the EXACT PMID provided.
+- When a risk statement comes from your own pre-trained clinical knowledge (e.g. known toxicity profiles like trastuzumab cardiotoxicity, anthracycline cumulative dose limits, capecitabine hand-foot syndrome) and is NOT covered by a listed paper, attribute it inline using EXACTLY this format: (Gemini). The literal seven characters: open-paren, capital G, lowercase emini, close-paren. Do NOT write variants like (NCCN, 2023), (per ASCO), (clinical knowledge), or any other form — only the exact token "(Gemini)".
+- Never invent PMIDs, author names, journals, or trial details. If you are unsure, omit the claim.
+- ABSOLUTE RULE: NEVER write an author-year citation like "(McAndrew & Finn, 2020)" or "(Smith et al., 2021)" UNLESS that exact paper is in "REAL PEER-REVIEWED PAPERS" with a matching PMID. If not, use "(Gemini)" — author-year-without-PMID is forbidden because the reader cannot verify it.
+- Mix attributions naturally: real-paper citations where applicable, (Gemini) where drawing on general clinical pharmacology knowledge.`
 
 	result, err := gemma.Ask(system, patientContext)
 	return cleanResponse(result), err
@@ -123,7 +126,7 @@ func GuidelineAlignment(patientContext string) (string, error) {
 
 RULE: Output ONLY a single flowing paragraph. No headers, no bullet points, no numbered lists, no regimen summary list, no self-check notes, and no chain-of-thought. Start directly with the clinical reasoning.
 
-Write 4-6 sentences that map THIS specific patient to guideline-concordant treatment pathways. Your reasoning should:
+Write 3-5 sentences that map THIS specific patient to guideline-concordant treatment pathways. Your reasoning should:
 - Name the line of therapy (first-line, second-line, etc.) and why
 - Discuss the top 2-3 regimen options as part of the prose, each with a brief rationale
 - Reference the relevant guideline body (NCCN, ASCO, ESMO) and year
@@ -136,10 +139,11 @@ CITATION FORMAT — strict:
 - NEVER nest parentheses
 
 CONTENT RULES:
-- Cite ONLY from papers listed under "REAL PEER-REVIEWED PAPERS" in the patient context
-- Use the exact PMID numbers provided — do not change or guess them
-- If no papers are listed in the context, write the reasoning without any citations
-- Never invent PMIDs, author names, trial names, or journals`
+- When a claim is supported by a paper listed under "REAL PEER-REVIEWED PAPERS" in the patient context, cite it inline as (Author et al., Year. PMID: 28578601). Use the EXACT PMID provided — do not change or guess.
+- When a claim comes from your own pre-trained clinical knowledge (e.g. NCCN guideline content, well-known landmark trial names like CLEOPATRA or KATHERINE, standard dosing) and is NOT covered by a listed paper, attribute it inline using EXACTLY this format: (Gemini). The literal seven characters: open-paren, capital G, lowercase emini, close-paren. Do NOT write variants like (NCCN, 2023), (per ASCO), (NCCN guidelines), (clinical knowledge), (Gemini knowledge), or any other form — only the exact token "(Gemini)".
+- Never invent PMIDs, author names, journals, or trial details. If you are unsure whether a fact is true, omit it.
+- ABSOLUTE RULE: NEVER write an author-year citation like "(McAndrew & Finn, 2020)" or "(Roskoski, 2024)" or "(Smith et al., 2021)" UNLESS that exact paper is listed in "REAL PEER-REVIEWED PAPERS" with a matching PMID. If a paper is not in the list, you MUST use "(Gemini)" instead — even if you are confident the paper exists. The reader has no way to verify a citation without a PMID, so author-year-without-PMID is forbidden. Trial NAMES (e.g. "MONALEESA-2 trial", "the CLEOPATRA study") may appear in prose without parenthetical citation, attributed by "(Gemini)" at the end of the sentence.
+- Combine both sources naturally: cite real papers where they apply, and use (Gemini) where you are drawing on general knowledge. A typical paragraph may have a mix of (Author et al., Year. PMID: ...) and (Gemini) attributions.`
 
 	result, err := gemma.Ask(system, patientContext)
 	return cleanResponse(result), err

@@ -220,10 +220,10 @@ export default function Home() {
             </h1>
           </div>
           <p className="text-base font-medium" style={{ color: "#5C4F4A" }}>
-            Local oncology co-pilot for metastatic breast cancer tumor board decisions.
+            Oncology co-pilot for breast cancer tumor board decisions.
           </p>
           <p className="mt-1 text-sm" style={{ color: "#5C766D" }}>
-            Powered by Gemma 4 via Google AI Studio. Patient data never leaves your machine.
+            Powered by Gemini 2.5 Flash Lite via Google AI Studio. Synthetic patient data only — do not submit real PHI.
           </p>
         </header>
 

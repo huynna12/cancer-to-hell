@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,7 +27,10 @@ func cleanTerm(s string) string {
 
 // buildSearchQuery produces a focused PubMed query: cancer type + up to 3
 // cleaned biomarker keywords + "treatment". Avoids long sentence-like queries
-// that PubMed AND's into zero results.
+// that PubMed AND's into zero results. We rely on PubMed's relevance sort
+// (configured in pubmed.searchIDs) rather than a publication-type filter,
+// since landmark RCTs are often indexed as "Multicenter Study" or
+// "Clinical Trial" and would be excluded by a strict [pt] filter.
 func buildSearchQuery(cancerType string, biomarkers []string) string {
 	parts := []string{cancerType}
 	for i, b := range biomarkers {
@@ -108,17 +112,24 @@ func streamDebateEvents(input PatientInput, eventCh chan<- sseEvent) {
 
 func fetchPapers(input PatientInput) ([]pubmed.Paper, map[string]bool) {
 	searchQuery := buildSearchQuery(input.CancerType, input.Biomarkers)
+	log.Printf("[pubmed] primary query: %s", searchQuery)
 	papers, err := pubmed.Search(searchQuery)
+	log.Printf("[pubmed] primary returned %d papers (err=%v)", len(papers), err)
 	if err != nil || len(papers) == 0 {
 		// Fallback: strip to just cancer type + first biomarker keyword
 		fallback := input.CancerType + " treatment"
 		if len(input.Biomarkers) > 0 {
 			fallback = input.CancerType + " " + cleanTerm(input.Biomarkers[0]) + " treatment"
 		}
+		log.Printf("[pubmed] fallback query: %s", fallback)
 		papers, err = pubmed.Search(fallback)
+		log.Printf("[pubmed] fallback returned %d papers (err=%v)", len(papers), err)
 		if err != nil {
 			papers = []pubmed.Paper{}
 		}
+	}
+	for i, p := range papers {
+		log.Printf("[pubmed] [%d] PMID:%s | %s | %s", i+1, p.PMID, p.Year, p.Title)
 	}
 
 	allowedPMIDs := make(map[string]bool, len(papers))
@@ -153,11 +164,10 @@ func runClinicalModules(patientContext string, allowedPMIDs map[string]bool, pap
 		}
 
 		cleaned, found := validateCitations(content, allowedPMIDs)
-		withRefs := appendAPAReferences(cleaned, papers)
-		outputs[mod.name] = withRefs
+		outputs[mod.name] = cleaned
 		allHallucinated = append(allHallucinated, found...)
 
-		evt := sseEvent{Type: "module", Name: mod.name, Content: withRefs}
+		evt := sseEvent{Type: "module", Name: mod.name, Content: cleaned}
 		if len(found) > 0 {
 			evt.HallucinatedCitations = found
 		}

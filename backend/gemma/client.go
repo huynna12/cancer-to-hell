@@ -127,6 +127,13 @@ func postAndRead(url string, jsonBody []byte) ([]byte, error) {
 		return nil, err
 	}
 
+	// Retry on 5xx (transient server-side errors like 503 "high demand").
+	// 429 (rate limit) is intentionally NOT retried — surfacing it lets us
+	// know we have a quota problem to fix rather than silently waiting.
+	if resp.StatusCode >= 500 {
+		return nil, fmt.Errorf("transient HTTP %d from Google AI Studio: %s", resp.StatusCode, string(body))
+	}
+
 	return body, nil
 }
 

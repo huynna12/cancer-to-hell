@@ -130,8 +130,9 @@ type authorList struct {
 }
 
 type author struct {
-	LastName string `xml:"LastName"`
-	Initials string `xml:"Initials"`
+	LastName       string `xml:"LastName"`
+	Initials       string `xml:"Initials"`
+	CollectiveName string `xml:"CollectiveName"`
 }
 
 type journal struct {
@@ -172,8 +173,12 @@ func searchIDs(query string) ([]string, error) {
 	params := url.Values{}
 	params.Set("db", "pubmed")
 	params.Set("term", query)
-	params.Set("retmax", "5")
+	params.Set("retmax", "12")
 	params.Set("retmode", "xml")
+	// Bias toward higher-quality evidence: RCTs, meta-analyses, and reviews,
+	// sorted by relevance. This surfaces landmark trials more reliably than
+	// a generic search ordered by date.
+	params.Set("sort", "relevance")
 	if key := apiKey(); key != "" {
 		params.Set("api_key", key)
 	}
@@ -256,10 +261,13 @@ func fetchPapers(ids []string) ([]Paper, error) {
 func formatAuthors(list authorList) []string {
 	out := make([]string, 0)
 	for _, auth := range list.Authors {
-		if auth.LastName == "" {
+		if auth.LastName != "" {
+			out = append(out, auth.LastName+", "+auth.Initials+".")
 			continue
 		}
-		out = append(out, auth.LastName+", "+auth.Initials+".")
+		if auth.CollectiveName != "" {
+			out = append(out, auth.CollectiveName)
+		}
 	}
 	return out
 }

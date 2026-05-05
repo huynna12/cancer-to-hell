@@ -185,7 +185,7 @@ func StartDebate(c *gin.Context) {
 	var allHallucinated []string
 	for name, text := range outputs {
 		cleaned, found := validateCitations(text, allowedPMIDs)
-		outputs[name] = appendAPAReferences(cleaned, papers)
+		outputs[name] = cleaned
 		allHallucinated = append(allHallucinated, found...)
 	}
 
