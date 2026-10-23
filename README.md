@@ -4,7 +4,7 @@ Three LLM agents (evidence, guideline, safety) review a synthetic breast cancer 
 
 I built it end to end: Go backend, agent prompts, PubMed retrieval, citation guardrail, Next.js frontend, and deployment.
 
-**Live:** https://cancer-to-hell.vercel.app
+**Live:** http://3.217.194.27:8090
 
 > Research and educational use only. Not a medical device. Use synthetic patient data only.
 
@@ -35,7 +35,7 @@ flowchart LR
 
 ## Stack
 
-Go + Gin · Next.js + Tailwind · Gemini 2.5 Flash Lite · NCBI PubMed API · Fly.io + Vercel
+Go + Gin · Next.js + Tailwind · Gemini 2.5 Flash Lite · NCBI PubMed API · AWS Lightsail + Docker Compose
 
 ## Run locally
 
